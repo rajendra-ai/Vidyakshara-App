@@ -14,56 +14,70 @@ import {
 } from "./src/utils/mathContentContract";
 import { validateAICareerNarrative } from "./src/utils/careerScoringEngine";
 import { CareerAssessmentStore } from "./src/utils/careerServerService";
+import {
+  RateLimiter,
+  StudentRecordStore,
+  createPostgresPoolFromEnv,
+  initializeCareerStorePostgres,
+} from "./src/utils/productionDatabase";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
-const PORT = 3000;
+export const app = express();
+const parsedPort = Number.parseInt(process.env.PORT || "3000", 10);
+const PORT = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 3000;
+const HOST = process.env.HOST || "0.0.0.0";
+
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+
+// Production security headers & API cache prevention
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (req.path.startsWith("/api/")) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  }
+  next();
+});
 
 app.use(express.json({ limit: "8mb" }));
 
-interface StoredStudentRecord {
-  studentId: string;
-  token: string;
-  state: unknown;
-  updatedAt: string;
-}
-
-const DATA_DIR = path.join(__dirname, ".data");
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, ".data");
 const STORE_FILE = path.join(DATA_DIR, "student_records.json");
 const CAREER_ATTEMPTS_FILE = path.join(DATA_DIR, "career_attempts.json");
+
+const studentRecordStore = new StudentRecordStore(STORE_FILE);
 const careerAttemptStore = new CareerAssessmentStore(CAREER_ATTEMPTS_FILE);
+let activeStorageMode: "postgresql" | "disk" = "disk";
 
-function loadStudentStore(): Record<string, StoredStudentRecord> {
-  try {
-    if (fs.existsSync(STORE_FILE)) {
-      const raw = fs.readFileSync(STORE_FILE, "utf8");
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        return parsed;
-      }
+const aiRateLimiter = new RateLimiter({ windowMs: 60_000, maxRequests: 30 });
+const apiRateLimiter = new RateLimiter({ windowMs: 60_000, maxRequests: 120 });
+
+function enforceRateLimit(
+  limiter: RateLimiter,
+  bucketPrefix: string
+): express.RequestHandler {
+  return (req, res, next) => {
+    const clientIp = req.ip || req.socket.remoteAddress || "unknown";
+    const check = limiter.check(`${bucketPrefix}:${clientIp}`);
+    res.setHeader("X-RateLimit-Remaining", String(check.remaining));
+    if (!check.allowed) {
+      res.setHeader("Retry-After", String(check.retryAfterSeconds));
+      res.status(429).json({
+        error: "Too many requests from this IP address. Please wait a moment and try again.",
+        code: "RATE_LIMIT",
+      });
+      return;
     }
-  } catch {
-    // Fallback to empty store if unreadable
-  }
-  return {};
+    next();
+  };
 }
-
-function saveStudentStore(store: Record<string, StoredStudentRecord>): void {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2), "utf8");
-  } catch {
-    // Ignore disk write failure in read-only environments
-  }
-}
-
-const studentStore: Record<string, StoredStudentRecord> = loadStudentStore();
 
 function extractBearerToken(req: express.Request): string | null {
   const authHeader = req.headers.authorization;
@@ -208,13 +222,26 @@ function cleanMathString(str?: string): string | undefined {
   return normalizeMathContent(str);
 }
 
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    status: "healthy",
+    storageMode: activeStorageMode,
+    aiConfigured: hasConfiguredApiKey(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get("/api/tutor/status", (_req, res) => {
   res.json({
     configured: hasConfiguredApiKey(),
   });
 });
 
-app.post("/api/tutor/doubt", async (req, res) => {
+app.post(
+  "/api/tutor/doubt",
+  enforceRateLimit(aiRateLimiter, "tutor-doubt"),
+  async (req, res) => {
   const {
     question,
     explanationMode,
@@ -233,6 +260,14 @@ app.post("/api/tutor/doubt", async (req, res) => {
     res.status(400).json({
       error: "Please enter a question or attach a question image/document so we can work through it together.",
       code: "INVALID_REQUEST",
+    });
+    return;
+  }
+
+  if (hasQuestionText && question.trim().length > 4000) {
+    res.status(400).json({
+      error: "Question text is too long (maximum 4,000 characters). Please shorten your question.",
+      code: "QUESTION_TOO_LONG",
     });
     return;
   }
@@ -537,7 +572,10 @@ Student Question: ${
   }
 });
 
-app.post("/api/tutor/explain-mistake", async (req, res) => {
+app.post(
+  "/api/tutor/explain-mistake",
+  enforceRateLimit(aiRateLimiter, "tutor-mistake"),
+  async (req, res) => {
   const {
     questionText,
     selectedOption,
@@ -547,8 +585,12 @@ app.post("/api/tutor/explain-mistake", async (req, res) => {
     targetExam,
   } = req.body || {};
 
-  if (!questionText) {
+  if (!questionText || typeof questionText !== "string" || !questionText.trim()) {
     res.status(400).json({ error: "Question details are required." });
+    return;
+  }
+  if (questionText.length > 4000) {
+    res.status(400).json({ error: "Question text exceeds maximum allowed length." });
     return;
   }
 
@@ -607,7 +649,10 @@ In 3 short, friendly points (using Markdown for prose, $...$ for inline formulas
   }
 });
 
-app.post("/api/career/personalize-report", async (req, res) => {
+app.post(
+  "/api/career/personalize-report",
+  enforceRateLimit(aiRateLimiter, "career-ai"),
+  async (req, res) => {
   const {
     dimensionScores,
     leadingCombinations,
@@ -759,128 +804,122 @@ Return a JSON object with:
  * SERVER-SIDE STUDENT PERSISTENCE & USER-SPECIFIC ACCESS CONTROL
  * ========================================================================== */
 
-app.post("/api/student/session", (req, res) => {
-  const { studentId, existingToken, initialState } = req.body || {};
-
-  if (!studentId || typeof studentId !== "string" || !studentId.trim()) {
-    res.status(400).json({
-      error: "A valid studentId is required to initialise a session.",
-      code: "INVALID_STUDENT_ID",
+app.post(
+  "/api/student/session",
+  enforceRateLimit(apiRateLimiter, "student-session"),
+  (req, res) => {
+    const { studentId, existingToken, initialState } = req.body || {};
+    const result = studentRecordStore.createOrVerifySession({
+      studentId,
+      existingToken,
+      initialState,
     });
-    return;
-  }
 
-  const cleanId = studentId.trim();
-  const existingRecord = studentStore[cleanId];
+    if (result.status === "invalid_student_id") {
+      res.status(400).json({
+        error: "A valid studentId is required to initialise a session.",
+        code: "INVALID_STUDENT_ID",
+      });
+      return;
+    }
 
-  if (!existingRecord) {
-    const newToken = crypto.randomBytes(24).toString("hex");
-    const newRecord: StoredStudentRecord = {
-      studentId: cleanId,
-      token: newToken,
-      state: initialState || null,
-      updatedAt: new Date().toISOString(),
-    };
-    studentStore[cleanId] = newRecord;
-    saveStudentStore(studentStore);
+    if (result.status === "forbidden" || !result.record) {
+      res.status(403).json({
+        error:
+          "Access denied: You do not have permission to access another student's private records.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
 
     res.json({
-      studentId: cleanId,
-      sessionToken: newToken,
-      state: newRecord.state,
-      updatedAt: newRecord.updatedAt,
+      studentId: result.record.studentId,
+      sessionToken: result.record.token,
+      state: result.record.state,
+      updatedAt: result.record.updatedAt,
     });
-    return;
   }
+);
 
-  // Enforce user-specific access control: cannot claim an existing studentId without its token
-  if (!existingToken || existingToken !== existingRecord.token) {
-    res.status(403).json({
-      error:
-        "Access denied: You do not have permission to access another student's private records.",
-      code: "FORBIDDEN",
+app.get(
+  "/api/student/:studentId/state",
+  enforceRateLimit(apiRateLimiter, "student-state"),
+  (req, res) => {
+    const token = extractBearerToken(req);
+    const result = studentRecordStore.getAuthorizedState(
+      req.params.studentId,
+      token
+    );
+
+    if (result.status === "not_found") {
+      res.status(404).json({
+        error: "Student record not found.",
+        code: "NOT_FOUND",
+      });
+      return;
+    }
+
+    if (result.status !== "ok" || !result.record) {
+      res.status(403).json({
+        error:
+          "Access denied: You cannot read another student's private learning records.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+
+    res.json({
+      studentId: result.record.studentId,
+      state: result.record.state,
+      updatedAt: result.record.updatedAt,
     });
-    return;
   }
+);
 
-  res.json({
-    studentId: cleanId,
-    sessionToken: existingRecord.token,
-    state: existingRecord.state,
-    updatedAt: existingRecord.updatedAt,
-  });
-});
+app.put(
+  "/api/student/:studentId/state",
+  enforceRateLimit(apiRateLimiter, "student-state"),
+  (req, res) => {
+    const token = extractBearerToken(req);
+    const { state } = req.body || {};
+    const result = studentRecordStore.updateAuthorizedState(
+      req.params.studentId,
+      token,
+      state
+    );
 
-app.get("/api/student/:studentId/state", (req, res) => {
-  const cleanId = (req.params.studentId || "").trim();
-  const record = studentStore[cleanId];
+    if (result.status === "not_found") {
+      res.status(404).json({
+        error: "Student record not found.",
+        code: "NOT_FOUND",
+      });
+      return;
+    }
 
-  if (!record) {
-    res.status(404).json({
-      error: "Student record not found.",
-      code: "NOT_FOUND",
+    if (result.status === "forbidden") {
+      res.status(403).json({
+        error:
+          "Access denied: You cannot modify another student's private learning records.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+
+    if (result.status !== "ok" || !result.record) {
+      res.status(400).json({
+        error: "Valid student learning state payload is required.",
+        code: "INVALID_STATE",
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      studentId: result.record.studentId,
+      updatedAt: result.record.updatedAt,
     });
-    return;
   }
-
-  const token = extractBearerToken(req);
-  if (!token || token !== record.token) {
-    res.status(403).json({
-      error:
-        "Access denied: You cannot read another student's private learning records.",
-      code: "FORBIDDEN",
-    });
-    return;
-  }
-
-  res.json({
-    studentId: cleanId,
-    state: record.state,
-    updatedAt: record.updatedAt,
-  });
-});
-
-app.put("/api/student/:studentId/state", (req, res) => {
-  const cleanId = (req.params.studentId || "").trim();
-  const record = studentStore[cleanId];
-
-  if (!record) {
-    res.status(404).json({
-      error: "Student record not found.",
-      code: "NOT_FOUND",
-    });
-    return;
-  }
-
-  const token = extractBearerToken(req);
-  if (!token || token !== record.token) {
-    res.status(403).json({
-      error:
-        "Access denied: You cannot modify another student's private learning records.",
-      code: "FORBIDDEN",
-    });
-    return;
-  }
-
-  const { state } = req.body || {};
-  if (!state || typeof state !== "object") {
-    res.status(400).json({
-      error: "Valid student learning state payload is required.",
-      code: "INVALID_STATE",
-    });
-    return;
-  }
-
-  record.state = state;
-  record.updatedAt = new Date().toISOString();
-  saveStudentStore(studentStore);
-
-  res.json({
-    ok: true,
-    studentId: cleanId,
-    updatedAt: record.updatedAt,
-  });
-});
+);
 
 function extractCareerAccessToken(req: express.Request): string | null {
   const bearer = extractBearerToken(req);
@@ -901,126 +940,165 @@ function extractCareerAccessToken(req: express.Request): string | null {
 /* =========================================================================
  * CAREER INTELLIGENCE TEST: ATTEMPT PERSISTENCE & TOKEN ACCESS
  * ======================================================================= */
-app.post("/api/career/attempts", (req, res) => {
-  const { attemptId, studentDetails, responses, aiNarrative } = req.body || {};
-  const accessToken = extractCareerAccessToken(req) || undefined;
+app.post(
+  "/api/career/attempts",
+  enforceRateLimit(apiRateLimiter, "career-attempts"),
+  (req, res) => {
+    const { attemptId, studentDetails, responses, aiNarrative } = req.body || {};
+    const accessToken = extractCareerAccessToken(req) || undefined;
 
-  const result = careerAttemptStore.upsertAttempt({
-    attemptId: typeof attemptId === "string" ? attemptId : undefined,
-    accessToken,
-    studentDetails,
-    responses,
-    aiNarrative,
-  });
-
-  if (result.status === "validation_error") {
-    res.status(400).json({
-      error: "Please review and complete the highlighted student details.",
-      code: "VALIDATION_ERROR",
-      fieldErrors: result.errors,
+    const result = careerAttemptStore.upsertAttempt({
+      attemptId: typeof attemptId === "string" ? attemptId : undefined,
+      accessToken,
+      studentDetails,
+      responses,
+      aiNarrative,
     });
-    return;
-  }
 
-  if (result.status === "unauthorized" || !result.record) {
-    res.status(403).json({
-      error:
-        "Access denied: Invalid or expired access token for this career assessment attempt.",
-      code: "FORBIDDEN",
+    if (result.status === "validation_error") {
+      res.status(400).json({
+        error: "Please review and complete the highlighted student details.",
+        code: "VALIDATION_ERROR",
+        fieldErrors: result.errors,
+      });
+      return;
+    }
+
+    if (result.status === "unauthorized" || !result.record) {
+      res.status(403).json({
+        error:
+          "Access denied: Invalid or expired access token for this career assessment attempt.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      attemptId: result.record.attemptId,
+      accessToken: result.record.accessToken,
+      expiresAt: result.record.expiresAt,
+      studentDetails: result.record.studentDetails,
+      responses: result.record.responses,
+      completedReport: result.record.completedReport,
+      updatedAt: result.record.updatedAt,
     });
-    return;
   }
+);
 
-  res.json({
-    ok: true,
-    attemptId: result.record.attemptId,
-    accessToken: result.record.accessToken,
-    expiresAt: result.record.expiresAt,
-    studentDetails: result.record.studentDetails,
-    responses: result.record.responses,
-    completedReport: result.record.completedReport,
-    updatedAt: result.record.updatedAt,
-  });
-});
+app.get(
+  "/api/career/attempts/:attemptId",
+  enforceRateLimit(apiRateLimiter, "career-attempts"),
+  (req, res) => {
+    const attemptId = (req.params.attemptId || "").trim();
+    const accessToken = extractCareerAccessToken(req);
 
-app.get("/api/career/attempts/:attemptId", (req, res) => {
-  const attemptId = (req.params.attemptId || "").trim();
-  const accessToken = extractCareerAccessToken(req);
+    const result = careerAttemptStore.getAuthorizedAttempt(
+      attemptId,
+      accessToken
+    );
 
-  const result = careerAttemptStore.getAuthorizedAttempt(
-    attemptId,
-    accessToken
-  );
+    if (result.status === "not_found") {
+      res.status(404).json({
+        error: "Career assessment attempt not found.",
+        code: "NOT_FOUND",
+      });
+      return;
+    }
 
-  if (result.status === "not_found") {
-    res.status(404).json({
-      error: "Career assessment attempt not found.",
-      code: "NOT_FOUND",
+    if (result.status === "expired") {
+      res.status(403).json({
+        error: "This report access link has expired.",
+        code: "EXPIRED_TOKEN",
+      });
+      return;
+    }
+
+    if (result.status !== "ok" || !result.record) {
+      res.status(403).json({
+        error:
+          "Access denied: A valid access token is required to view this student's Career Intelligence Report.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      attemptId: result.record.attemptId,
+      expiresAt: result.record.expiresAt,
+      studentDetails: result.record.studentDetails,
+      responses: result.record.responses,
+      completedReport: result.record.completedReport,
+      completedAt: result.record.completedAt,
+      updatedAt: result.record.updatedAt,
     });
-    return;
   }
+);
 
-  if (result.status === "expired") {
-    res.status(403).json({
-      error: "This report access link has expired.",
-      code: "EXPIRED_TOKEN",
+app.delete(
+  "/api/career/attempts/:attemptId",
+  enforceRateLimit(apiRateLimiter, "career-attempts"),
+  (req, res) => {
+    const attemptId = (req.params.attemptId || "").trim();
+    const accessToken = extractCareerAccessToken(req);
+
+    const result = careerAttemptStore.deleteAuthorizedAttempt(
+      attemptId,
+      accessToken
+    );
+
+    if (result.status === "not_found") {
+      res.status(404).json({
+        error: "Career assessment attempt not found.",
+        code: "NOT_FOUND",
+      });
+      return;
+    }
+
+    if (result.status !== "ok") {
+      res.status(403).json({
+        error: "Access denied: Valid access token required to delete data.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      deletedAttemptId: attemptId,
     });
-    return;
   }
+);
 
-  if (result.status !== "ok" || !result.record) {
-    res.status(403).json({
-      error:
-        "Access denied: A valid access token is required to view this student's Career Intelligence Report.",
-      code: "FORBIDDEN",
-    });
-    return;
-  }
-
-  res.json({
-    ok: true,
-    attemptId: result.record.attemptId,
-    expiresAt: result.record.expiresAt,
-    studentDetails: result.record.studentDetails,
-    responses: result.record.responses,
-    completedReport: result.record.completedReport,
-    completedAt: result.record.completedAt,
-    updatedAt: result.record.updatedAt,
-  });
-});
-
-app.delete("/api/career/attempts/:attemptId", (req, res) => {
-  const attemptId = (req.params.attemptId || "").trim();
-  const accessToken = extractCareerAccessToken(req);
-
-  const result = careerAttemptStore.deleteAuthorizedAttempt(
-    attemptId,
-    accessToken
-  );
-
-  if (result.status === "not_found") {
-    res.status(404).json({
-      error: "Career assessment attempt not found.",
-      code: "NOT_FOUND",
-    });
-    return;
-  }
-
-  if (result.status !== "ok") {
-    res.status(403).json({
-      error: "Access denied: Valid access token required to delete data.",
-      code: "FORBIDDEN",
-    });
-    return;
-  }
-
-  res.json({
-    ok: true,
-    deletedAttemptId: attemptId,
+// Ensure unmatched /api/* routes always return 404 JSON rather than falling through to SPA index.html
+app.all("/api/*", (_req, res) => {
+  res.status(404).json({
+    error: "API endpoint not found.",
+    code: "NOT_FOUND",
   });
 });
 
 async function startServer() {
+  const pgPool = createPostgresPoolFromEnv();
+  if (pgPool) {
+    studentRecordStore.attachPostgresPool(pgPool);
+    const [studentsInitialized, careerInitialized] = await Promise.all([
+      studentRecordStore.initializePostgresSchemaAndHydrate(),
+      initializeCareerStorePostgres(careerAttemptStore, pgPool),
+    ]);
+    if (studentsInitialized && careerInitialized) {
+      activeStorageMode = "postgresql";
+      console.log(
+        `Vidyakshara persistent storage: PostgreSQL connected (${studentRecordStore.getRecordCount()} student profiles, ${careerAttemptStore.getRecordCount()} career attempts loaded)`
+      );
+    }
+  } else {
+    console.log(
+      `Vidyakshara persistent storage: Local disk mode (${DATA_DIR})`
+    );
+  }
+
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
@@ -1030,15 +1108,57 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, "dist");
-    app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+    const assetsPath = path.join(distPath, "assets");
+    if (fs.existsSync(assetsPath)) {
+      app.use(
+        "/assets",
+        express.static(assetsPath, {
+          maxAge: "1y",
+          immutable: true,
+        })
+      );
+    }
+    app.use(
+      express.static(distPath, {
+        index: false,
+        maxAge: "1h",
+      })
+    );
+    app.get("*", (req, res) => {
+      if (req.path.startsWith("/api/")) {
+        res.status(404).json({
+          error: "API endpoint not found.",
+          code: "NOT_FOUND",
+        });
+        return;
+      }
+      const indexFile = path.join(distPath, "index.html");
+      res.setHeader("Cache-Control", "no-cache");
+      res.sendFile(indexFile);
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Vidyakshara server listening on http://0.0.0.0:${PORT}`);
+  const httpServer = app.listen(PORT, HOST, () => {
+    console.log(
+      `Vidyakshara server listening on http://${HOST}:${PORT} (mode: ${
+        process.env.NODE_ENV || "development"
+      }, storage: ${activeStorageMode})`
+    );
   });
+
+  const shutdown = (signal: string) => {
+    console.log(`Received ${signal}, shutting down Vidyakshara server...`);
+    httpServer.close(() => {
+      if (pgPool) {
+        void pgPool.end().finally(() => process.exit(0));
+      } else {
+        process.exit(0);
+      }
+    });
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 startServer();

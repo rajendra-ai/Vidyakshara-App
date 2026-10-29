@@ -73,6 +73,12 @@ import {
   formatReportDateForFilename,
   generateCareerReportPdfBytes,
 } from "../careerPdfGenerator";
+import {
+  RateLimiter,
+  StudentRecordStore,
+  isValidStudentId,
+  timingSafeTokenMatch,
+} from "../productionDatabase";
 import { CareerDiscoveryView } from "../../components/views/CareerDiscoveryView";
 
 interface TestCase {
@@ -1773,6 +1779,127 @@ const tests: TestCase[] = [
       assert.equal(
         storedCandidateA.record?.completedReport?.studentName,
         "Candidate Ananya Rao"
+      );
+    },
+  },
+  {
+    name: "Production Test 11 — Production readiness: StudentRecordStore auth & timing-safe tokens, CareerAssessmentStore DB hooks, RateLimiter, and server configuration audit",
+    run: () => {
+      // 1. Verify StudentRecordStore ID validation, timing-safe token matching, and IDOR protection
+      assert.equal(isValidStudentId("stu-12345_abc"), true);
+      assert.equal(isValidStudentId("a"), false); // too short (< 2 chars)
+      assert.equal(isValidStudentId("../etc/passwd"), false); // path traversal rejected
+
+      assert.equal(timingSafeTokenMatch("secret-token-123", "secret-token-123"), true);
+      assert.equal(timingSafeTokenMatch("secret-token-123", "secret-token-999"), false);
+      assert.equal(timingSafeTokenMatch("secret-token-123", ""), false);
+
+      const studentStore = new StudentRecordStore(null);
+      const session = studentStore.createOrVerifySession({
+        studentId: "stu-prod-test-01",
+        initialState: { profile: { name: "Neha Verma" } },
+      });
+      assert.equal(session.status, "ok");
+      assert.ok(session.record && session.record.token.length === 48);
+
+      const sessionToken = session.record!.token;
+
+      // Authorized read & save
+      const authorizedRead = studentStore.getAuthorizedState(
+        "stu-prod-test-01",
+        sessionToken
+      );
+      assert.equal(authorizedRead.status, "ok");
+      assert.deepEqual(authorizedRead.record?.state, {
+        profile: { name: "Neha Verma" },
+      });
+
+      const authorizedSave = studentStore.updateAuthorizedState(
+        "stu-prod-test-01",
+        sessionToken,
+        { profile: { name: "Neha Verma", targetExam: "JEE Main" } }
+      );
+      assert.equal(authorizedSave.status, "ok");
+
+      // Unauthorized read & save (IDOR protection)
+      const forbiddenRead = studentStore.getAuthorizedState(
+        "stu-prod-test-01",
+        "wrong-session-token"
+      );
+      assert.equal(forbiddenRead.status, "forbidden");
+
+      const forbiddenSave = studentStore.updateAuthorizedState(
+        "stu-prod-test-01",
+        "wrong-session-token",
+        { hacked: true }
+      );
+      assert.equal(forbiddenSave.status, "forbidden");
+
+      // 2. Verify CareerAssessmentStore PostgreSQL persistence hooks & hydration
+      const upsertedIds: string[] = [];
+      const deletedIds: string[] = [];
+      const hookedCareerStore = new CareerAssessmentStore(null);
+      hookedCareerStore.setPersistenceHooks({
+        onUpsert: (rec) => {
+          upsertedIds.push(rec.attemptId);
+        },
+        onDelete: (id) => {
+          deletedIds.push(id);
+        },
+      });
+
+      const createdAttempt = hookedCareerStore.upsertAttempt({
+        studentDetails: { fullName: "Pranav Iyer", studentClass: "Class 12" },
+        responses: { "cit-q01": "5" },
+      });
+      assert.equal(createdAttempt.status, "ok");
+      assert.equal(upsertedIds.length, 1);
+      assert.equal(upsertedIds[0], createdAttempt.record!.attemptId);
+
+      const deletedAttempt = hookedCareerStore.deleteAuthorizedAttempt(
+        createdAttempt.record!.attemptId,
+        createdAttempt.record!.accessToken
+      );
+      assert.equal(deletedAttempt.status, "ok");
+      assert.equal(deletedIds.length, 1);
+      assert.equal(deletedIds[0], createdAttempt.record!.attemptId);
+
+      // 3. Verify RateLimiter sliding window enforcement
+      const limiter = new RateLimiter({ maxRequests: 3, windowMs: 60_000 });
+      assert.equal(limiter.check("203.0.113.10").allowed, true);
+      assert.equal(limiter.check("203.0.113.10").allowed, true);
+      assert.equal(limiter.check("203.0.113.10").allowed, true);
+      const fourthCheck = limiter.check("203.0.113.10");
+      assert.equal(fourthCheck.allowed, false);
+      assert.ok(fourthCheck.retryAfterSeconds >= 1);
+
+      // 4. Audit server.ts and client source for production readiness & secret safety
+      const serverSource = fs.readFileSync(
+        path.resolve(process.cwd(), "server.ts"),
+        "utf-8"
+      );
+      assert.ok(
+        serverSource.includes("process.env.PORT"),
+        "server.ts must read process.env.PORT for cloud hosting"
+      );
+      assert.ok(
+        serverSource.includes('"/api/health"'),
+        "server.ts must expose /api/health endpoint"
+      );
+      assert.ok(
+        serverSource.includes('app.all("/api/*"'),
+        "server.ts must return 404 JSON for unmatched /api/* routes before SPA catch-all"
+      );
+
+      // Verify client-side code never references GEMINI_API_KEY or DATABASE_URL
+      const appSource = fs.readFileSync(
+        path.resolve(process.cwd(), "src/App.tsx"),
+        "utf-8"
+      );
+      assert.ok(
+        !appSource.includes("GEMINI_API_KEY") &&
+          !appSource.includes("DATABASE_URL"),
+        "Client bundle code must never reference GEMINI_API_KEY or DATABASE_URL"
       );
     },
   },

@@ -29,15 +29,37 @@ export interface CareerAttemptServerRecord {
 
 const DEFAULT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+export interface CareerStorePersistenceHooks {
+  onUpsert?: (record: CareerAttemptServerRecord) => void;
+  onDelete?: (attemptId: string) => void;
+}
+
 export class CareerAssessmentStore {
   private records = new Map<string, CareerAttemptServerRecord>();
   private filePath: string | null;
+  private hooks: CareerStorePersistenceHooks = {};
 
   constructor(filePath: string | null = null) {
     this.filePath = filePath;
     if (this.filePath) {
       this.loadFromDisk();
     }
+  }
+
+  public setPersistenceHooks(hooks: CareerStorePersistenceHooks): void {
+    this.hooks = hooks;
+  }
+
+  public hydrateRecords(externalRecords: CareerAttemptServerRecord[]): void {
+    for (const rec of externalRecords) {
+      if (rec && typeof rec.attemptId === "string" && rec.accessToken) {
+        this.records.set(rec.attemptId, rec);
+      }
+    }
+  }
+
+  public getRecordCount(): number {
+    return this.records.size;
   }
 
   private loadFromDisk(): void {
@@ -77,11 +99,13 @@ export class CareerAssessmentStore {
       for (const [id, rec] of this.records.entries()) {
         serializable[id] = rec;
       }
+      const tempPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
       fs.writeFileSync(
-        this.filePath,
+        tempPath,
         JSON.stringify(serializable, null, 2),
         "utf-8"
       );
+      fs.renameSync(tempPath, this.filePath);
     } catch (err) {
       console.error("Failed to persist career attempts store:", err);
     }
@@ -209,6 +233,7 @@ export class CareerAssessmentStore {
 
       this.records.set(existing.attemptId, updatedRecord);
       this.persistToDisk();
+      this.hooks.onUpsert?.(updatedRecord);
       return { status: "ok", record: updatedRecord };
     }
 
@@ -245,6 +270,7 @@ export class CareerAssessmentStore {
 
     this.records.set(newAttemptId, created);
     this.persistToDisk();
+    this.hooks.onUpsert?.(created);
     return { status: "ok", record: created };
   }
 
@@ -281,6 +307,7 @@ export class CareerAssessmentStore {
     }
     this.records.delete(attemptId);
     this.persistToDisk();
+    this.hooks.onDelete?.(attemptId);
     return { status: "ok" };
   }
 }
