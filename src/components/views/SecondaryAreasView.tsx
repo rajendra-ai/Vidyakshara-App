@@ -35,7 +35,7 @@ import {
   ProgressBar,
   SegmentedControl,
 } from "../ui/Primitives";
-import { MathFormula } from "../ui/MathAndDiagrams";
+import { MarkdownContent, MathRenderer } from "../ui/MathAndDiagrams";
 import {
   QuestionCard,
   QuestionSubmissionPayload,
@@ -231,9 +231,10 @@ export function RevisionView({
               <span className="text-xs font-semibold text-[#164A31] uppercase tracking-wider">
                 Core Concept Refresher
               </span>
-              <p className="text-sm sm:text-base text-[#14241B] leading-relaxed">
-                {activeSessionTopic.intuitiveIntro}
-              </p>
+              <MarkdownContent
+                content={activeSessionTopic.intuitiveIntro}
+                className="text-sm sm:text-base text-[#14241B] leading-relaxed"
+              />
             </div>
 
             {/* Formulas to Remember */}
@@ -245,21 +246,21 @@ export function RevisionView({
                 {activeSessionTopic.definitionsAndFormulas.map((df, idx) => (
                   <div
                     key={idx}
-                    className="p-4 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-2"
+                    className="p-4 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-1.5"
                   >
                     <div className="text-xs font-semibold text-[#14241B]">
-                      {df.term}
+                      <MarkdownContent content={df.term} inline />
                     </div>
                     {df.formula && (
-                      <MathFormula
+                      <MathRenderer
                         expression={df.formula}
                         block
-                        className="bg-white"
+                        variant="plain"
                       />
                     )}
-                    <p className="text-xs text-[#48564D] leading-relaxed">
-                      {df.meaning}
-                    </p>
+                    <div className="text-xs text-[#48564D] leading-relaxed">
+                      <MarkdownContent content={df.meaning} />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -279,7 +280,7 @@ export function RevisionView({
                     <span className="font-mono font-semibold text-[#164A31]">
                       0{idx + 1}.
                     </span>
-                    <span>{kt}</span>
+                    <MarkdownContent content={kt} inline />
                   </li>
                 ))}
               </ul>
@@ -313,10 +314,12 @@ export function RevisionView({
           </section>
         ) : (
           <div className="space-y-6">
-            {sessionQuestions.map((q) => (
+            {sessionQuestions.map((q, idx) => (
               <QuestionCard
                 key={q.id}
                 question={q}
+                questionNumber={idx + 1}
+                totalQuestions={sessionQuestions.length}
                 existingAttempt={[...state.attempts]
                   .reverse()
                   .find((a) => a.questionId === q.id)}
@@ -510,10 +513,12 @@ export function RevisionView({
                 </span>
               </div>
 
-              {mistakeQuestions.map((q) => (
+              {mistakeQuestions.map((q, idx) => (
                 <QuestionCard
                   key={q.id}
                   question={q}
+                  questionNumber={idx + 1}
+                  totalQuestions={mistakeQuestions.length}
                   existingAttempt={[...state.attempts]
                     .reverse()
                     .find((a) => a.questionId === q.id)}
@@ -642,10 +647,12 @@ export function RevisionView({
                 </Button>
               </div>
             ) : (
-              savedQuestions.map((q) => (
+              savedQuestions.map((q, idx) => (
                 <QuestionCard
                   key={q.id}
                   question={q}
+                  questionNumber={idx + 1}
+                  totalQuestions={savedQuestions.length}
                   existingAttempt={[...state.attempts]
                     .reverse()
                     .find((a) => a.questionId === q.id)}
@@ -1513,8 +1520,8 @@ export function NotesView({
                   </button>
                 </div>
 
-                <div className="text-sm text-[#48564D] whitespace-pre-line leading-relaxed bg-[#FAF8F3] p-4 rounded-lg border border-[#E2E5DC]">
-                  {note.content}
+                <div className="text-sm text-[#48564D] leading-relaxed bg-[#FAF8F3] p-4 rounded-lg border border-[#E2E5DC]">
+                  <MarkdownContent content={note.content} />
                 </div>
               </article>
             ))

@@ -5,6 +5,7 @@ import {
   Bookmark,
   BookOpen,
   CheckCircle2,
+  RotateCcw,
   Sparkles,
 } from "lucide-react";
 import {
@@ -14,7 +15,11 @@ import {
   TargetExam,
 } from "../../types/domain";
 import { Button, MetaLine } from "../ui/Primitives";
-import { MathFormula, QuestionDiagramSvg } from "../ui/MathAndDiagrams";
+import {
+  MarkdownContent,
+  QuestionContent,
+  QuestionWorkedSolution,
+} from "../ui/MathAndDiagrams";
 
 export interface QuestionSubmissionPayload {
   questionId: string;
@@ -27,6 +32,8 @@ export interface QuestionSubmissionPayload {
 
 interface QuestionCardProps {
   question: Question;
+  questionNumber?: number;
+  totalQuestions?: number;
   existingAttempt?: QuestionAttempt;
   isBookmarked: boolean;
   targetExam: TargetExam;
@@ -39,6 +46,8 @@ interface QuestionCardProps {
 
 export function QuestionCard({
   question,
+  questionNumber,
+  totalQuestions,
   existingAttempt,
   isBookmarked,
   targetExam,
@@ -159,6 +168,13 @@ export function QuestionCard({
     });
   };
 
+  const handleClearSelection = () => {
+    if (submitted) return;
+    setSelectedSingle(null);
+    setSelectedMultiple([]);
+    setNumericalInput("");
+  };
+
   const handleResetTryAgain = () => {
     setSelectedSingle(null);
     setSelectedMultiple([]);
@@ -170,12 +186,16 @@ export function QuestionCard({
   const getFormattedStudentAnswer = (): string => {
     if (question.questionType === "single-choice") {
       const opt = question.options?.find((o) => o.id === selectedSingle);
-      return selectedSingle ? `Option ${selectedSingle} (${opt?.text || ""})` : "None";
+      return selectedSingle
+        ? `Option ${selectedSingle} — ${opt?.text || ""}`
+        : "None";
     }
     if (question.questionType === "multiple-choice") {
       return `Options ${selectedMultiple.join(", ")}`;
     }
-    return `${numericalInput} ${question.numericalUnit || ""}`.trim();
+    return `$$${numericalInput}${
+      question.numericalUnit ? `\\text{ ${question.numericalUnit}}` : ""
+    }$$`;
   };
 
   const getFormattedCorrectAnswer = (): string => {
@@ -188,9 +208,9 @@ export function QuestionCard({
     if (question.questionType === "multiple-choice") {
       return `Options ${(question.correctOptionIds || []).join(", ")}`;
     }
-    return `${question.correctNumericalValue} ${
-      question.numericalUnit || ""
-    }`.trim();
+    return `$$${question.correctNumericalValue}${
+      question.numericalUnit ? `\\text{ ${question.numericalUnit}}` : ""
+    }$$`;
   };
 
   const handleRequestAiBreakdown = async () => {
@@ -213,14 +233,14 @@ export function QuestionCard({
       if (!res.ok) {
         setAiBreakdown(
           data.error ||
-            "The live AI tutor did not respond right now. Please refer to the verified step-by-step explanation above or try again."
+            "The live AI tutor did not respond right now. Please refer to the verified worked solution above or try again."
         );
         return;
       }
       setAiBreakdown(data.reply || null);
     } catch {
       setAiBreakdown(
-        "Could not reach the live AI tutor right now. Please refer to the verified step-by-step explanation above or try again."
+        "Could not reach the live AI tutor right now. Please refer to the verified worked solution above or try again."
       );
     } finally {
       setLoadingBreakdown(false);
@@ -258,26 +278,66 @@ export function QuestionCard({
       : question.marks.incorrect
   }`;
 
+  const questionHeadingLabel =
+    questionNumber !== undefined && totalQuestions !== undefined
+      ? `Question ${questionNumber} of ${totalQuestions}`
+      : questionNumber !== undefined
+      ? `Question ${questionNumber}`
+      : "Practice Question";
+
+  const currentSelectionSummary = (() => {
+    if (question.questionType === "single-choice") {
+      return selectedSingle
+        ? `Selected: Option ${selectedSingle}`
+        : "Select one option (A, B, C, or D) above to submit";
+    }
+    if (question.questionType === "multiple-choice") {
+      return selectedMultiple.length > 0
+        ? `Selected: Option${
+            selectedMultiple.length > 1 ? "s" : ""
+          } ${selectedMultiple.join(", ")}`
+        : "Select one or more correct options above to submit";
+    }
+    return numericalInput.trim()
+      ? `Entered value: ${numericalInput.trim()}${
+          question.numericalUnit ? ` ${question.numericalUnit}` : ""
+        }`
+      : "Enter your numerical value above to submit";
+  })();
+
   return (
-    <article className="bg-white border border-[#E2E5DC] rounded-xl p-5 sm:p-6 space-y-5">
-      {/* Header Metadata Line */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <MetaLine
-          items={[
-            question.examTag,
-            `Class ${question.classLevel}`,
-            `${question.difficulty}`,
-            markingLabel,
-            question.sourceLabel,
-          ]}
-        />
+    <article
+      className="bg-white border border-[#E2E5DC] rounded-xl overflow-hidden"
+      aria-label={questionHeadingLabel}
+    >
+      {/* 1. Clear Question Number & Metadata Header */}
+      <div className="px-5 sm:px-6 py-4 bg-[#FAF8F3] border-b border-[#E2E5DC] flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-[#164A31] text-white font-mono text-xs font-semibold tabular-nums">
+              {questionHeadingLabel}
+            </span>
+            <span className="text-xs font-semibold text-[#14241B]">
+              {question.subjectId.toUpperCase()} · {question.examTag}
+            </span>
+          </div>
+          <MetaLine
+            items={[
+              `Class ${question.classLevel}`,
+              `${question.difficulty} Difficulty`,
+              markingLabel,
+              question.sourceLabel,
+            ]}
+          />
+        </div>
+
         <button
           type="button"
           onClick={() => onToggleBookmark(question.id)}
-          className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+          className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
             isBookmarked
-              ? "bg-[#D8F3A2] text-[#14241B]"
-              : "text-[#48564D] hover:bg-[#F3F1EA] hover:text-[#14241B]"
+              ? "bg-[#D8F3A2] text-[#14241B] border-[#164A31]/25"
+              : "bg-white text-[#48564D] border-[#E2E5DC] hover:bg-[#F3F1EA] hover:text-[#14241B]"
           }`}
           aria-label={
             isBookmarked
@@ -290,327 +350,408 @@ export function QuestionCard({
         </button>
       </div>
 
-      {/* Question Stem, Diagram & Formula Context */}
-      <div className="space-y-4">
-        <p className="text-base font-medium text-[#14241B] leading-relaxed">
-          <MathFormula expression={question.questionText} className="font-sans" />
-        </p>
+      {/* Main Question Body, Options, Submission Action & Worked Solution */}
+      <div className="p-5 sm:p-6 space-y-6">
+        {/* 2. Readable Problem Statement, Diagrams & Reference Formula */}
+        <QuestionContent question={question} />
 
-        {question.diagramType && (
-          <div className="py-1">
-            <QuestionDiagramSvg type={question.diagramType} />
-          </div>
-        )}
-
-        {question.formulaContext && (
-          <MathFormula expression={`Relation: ${question.formulaContext}`} block />
-        )}
-      </div>
-
-      {/* Input Area by Question Type */}
-      {question.questionType === "single-choice" && question.options && (
-        <div
-          className="grid grid-cols-1 gap-2.5"
-          role="radiogroup"
-          aria-label="Single-correct answer options"
-        >
-          {question.options.map((opt) => {
-            const isSelected = selectedSingle === opt.id;
-            const isThisCorrect = opt.id === question.correctOptionId;
-
-            let containerStyle =
-              "border-[#E2E5DC] bg-white hover:bg-[#FAF8F3] text-[#14241B]";
-            let badgeText: string = opt.id;
-
-            if (!submitted && isSelected) {
-              containerStyle = "border-[#164A31] bg-[#EAF2EC] text-[#14241B]";
-            } else if (submitted) {
-              if (isThisCorrect) {
-                containerStyle = "border-[#164A31] bg-[#EAF2EC] text-[#14241B]";
-                badgeText = "✓";
-              } else if (isSelected && !isThisCorrect) {
-                containerStyle = "border-[#D97706] bg-[#FFFBEB] text-[#14241B]";
-                badgeText = "✗";
-              } else {
-                containerStyle = "border-[#E2E5DC] bg-white/70 text-[#6E7B72]";
-              }
-            }
-
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                disabled={submitted}
-                onClick={() => setSelectedSingle(opt.id)}
-                className={`w-full text-left p-3.5 rounded-lg border transition-colors flex items-start gap-3 cursor-pointer disabled:cursor-default ${containerStyle}`}
-              >
-                <span className="w-6 h-6 rounded-md border border-current/25 flex items-center justify-center text-xs font-mono font-semibold shrink-0 mt-0.5">
-                  {badgeText}
-                </span>
-                <div className="flex-1 text-sm leading-relaxed">
-                  <MathFormula expression={opt.text} className="font-sans" />
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {question.questionType === "multiple-choice" && question.options && (
-        <div className="space-y-2.5" role="group" aria-label="Multiple-correct answer options">
-          <div className="text-xs font-medium text-[#184E77]">
-            Multiple-Correct Format: Select one or more options that are correct.
-          </div>
-          {question.options.map((opt) => {
-            const isSelected = selectedMultiple.includes(opt.id);
-            const isThisCorrect = (question.correctOptionIds || []).includes(
-              opt.id
-            );
-
-            let containerStyle =
-              "border-[#E2E5DC] bg-white hover:bg-[#FAF8F3] text-[#14241B]";
-            let badgeText: string = opt.id;
-
-            if (!submitted && isSelected) {
-              containerStyle = "border-[#164A31] bg-[#EAF2EC] text-[#14241B]";
-            } else if (submitted) {
-              if (isThisCorrect) {
-                containerStyle = "border-[#164A31] bg-[#EAF2EC] text-[#14241B]";
-                badgeText = "✓";
-              } else if (isSelected && !isThisCorrect) {
-                containerStyle = "border-[#D97706] bg-[#FFFBEB] text-[#14241B]";
-                badgeText = "✗";
-              } else {
-                containerStyle = "border-[#E2E5DC] bg-white/70 text-[#6E7B72]";
-              }
-            }
-
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                disabled={submitted}
-                onClick={() => toggleMultiOption(opt.id)}
-                className={`w-full text-left p-3.5 rounded-lg border transition-colors flex items-start gap-3 cursor-pointer disabled:cursor-default ${containerStyle}`}
-              >
-                <span className="w-6 h-6 rounded-md border border-current/25 flex items-center justify-center text-xs font-mono font-semibold shrink-0 mt-0.5">
-                  {badgeText}
-                </span>
-                <div className="flex-1 text-sm leading-relaxed">
-                  <MathFormula expression={opt.text} className="font-sans" />
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {question.questionType === "numerical" && (
-        <div className="p-4 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-2">
-          <label
-            htmlFor={`num-input-${question.id}`}
-            className="block text-xs font-semibold text-[#14241B]"
-          >
-            Enter Numerical Answer{" "}
-            {question.numericalUnit ? `(in ${question.numericalUnit})` : ""}
-          </label>
-          <div className="flex items-center gap-3 max-w-xs">
-            <input
-              id={`num-input-${question.id}`}
-              type="number"
-              step="any"
-              disabled={submitted}
-              value={numericalInput}
-              onChange={(e) => setNumericalInput(e.target.value)}
-              placeholder="e.g., 40"
-              className="w-full px-3.5 py-2.5 text-sm font-mono tabular-nums bg-white border border-[#E2E5DC] rounded-lg text-[#14241B]"
-            />
-            {question.numericalUnit && (
-              <span className="text-sm font-mono text-[#48564D] shrink-0">
-                {question.numericalUnit}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Submission Bar */}
-      {!submitted && (
-        <div className="pt-2 flex items-center justify-between gap-3">
-          <span className="text-xs text-[#6E7B72]">
-            Select your answer and submit to view full solution and feedback.
-          </span>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={!canSubmit}
-            onClick={handleSubmit}
-          >
-            Submit Answer
-          </Button>
-        </div>
-      )}
-
-      {/* =====================================================================
-          6-PART STRUCTURED POST-ANSWER FEEDBACK
-         ===================================================================== */}
-      {submitted && (
-        <div className="pt-5 border-t border-[#E2E5DC] space-y-4">
-          {/* 1. Whether the answer is correct + 2. The correct answer */}
+        {/* 3. Consistent Multiple-Choice Options / Numerical Input */}
+        {question.questionType === "single-choice" && question.options && (
           <div
-            className={`p-4 rounded-xl border space-y-2 ${
-              isCorrect
-                ? "bg-[#EAF2EC] border-[#164A31]/30 text-[#14241B]"
-                : "bg-[#FFFBEB] border-[#D97706]/40 text-[#14241B]"
-            }`}
+            className="grid grid-cols-1 gap-2.5"
+            role="radiogroup"
+            aria-label="Single-correct answer options"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                {isCorrect ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-[#164A31] shrink-0" />
-                    <span>
-                      1. Correct! Well reasoned ({marksAwarded >= 0 ? `+${marksAwarded}` : marksAwarded} marks)
+            {question.options.map((opt) => {
+              const isSelected = selectedSingle === opt.id;
+              const isThisCorrect = opt.id === question.correctOptionId;
+
+              let containerStyle =
+                "border-[#E2E5DC] bg-white hover:bg-[#FAF8F3] hover:border-[#C5CBC0] text-[#14241B]";
+              let badgeStyle =
+                "bg-[#FAF8F3] border-[#E2E5DC] text-[#48564D]";
+              let badgeText: string = opt.id;
+
+              if (!submitted && isSelected) {
+                containerStyle =
+                  "border-[#164A31] bg-[#EAF2EC]/85 text-[#14241B] ring-1 ring-[#164A31]";
+                badgeStyle = "bg-[#164A31] border-[#164A31] text-white";
+              } else if (submitted) {
+                if (isThisCorrect) {
+                  containerStyle =
+                    "border-[#164A31] bg-[#EAF2EC] text-[#14241B]";
+                  badgeStyle = "bg-[#164A31] border-[#164A31] text-white";
+                  badgeText = "✓";
+                } else if (isSelected && !isThisCorrect) {
+                  containerStyle =
+                    "border-[#D97706] bg-[#FFFBEB] text-[#14241B]";
+                  badgeStyle = "bg-[#D97706] border-[#D97706] text-white";
+                  badgeText = "✗";
+                } else {
+                  containerStyle =
+                    "border-[#E2E5DC] bg-[#FAF8F3]/60 text-[#6E7B72]";
+                }
+              }
+
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  disabled={submitted}
+                  onClick={() => setSelectedSingle(opt.id)}
+                  className={`w-full min-h-[54px] text-left px-4 py-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer disabled:cursor-default ${containerStyle}`}
+                >
+                  <div className="flex items-baseline gap-3.5 min-w-0 flex-1">
+                    <span
+                      className={`w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-mono font-semibold shrink-0 transition-colors ${badgeStyle}`}
+                    >
+                      {badgeText}
                     </span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 text-[#B45309] shrink-0" />
-                    <span>
-                      1. Not quite right ({marksAwarded >= 0 ? `+${marksAwarded}` : marksAwarded} mark{Math.abs(marksAwarded) === 1 ? "" : "s"}) — let&apos;s understand why
+                    <div className="flex-1 min-w-0 overflow-x-auto text-sm sm:text-[15px] leading-relaxed py-0.5">
+                      <MarkdownContent content={opt.text} inline />
+                    </div>
+                  </div>
+
+                  {submitted && isThisCorrect && (
+                    <span className="text-xs font-mono font-semibold text-[#164A31] shrink-0 hidden sm:inline">
+                      Correct Option
                     </span>
-                  </>
+                  )}
+                  {submitted && isSelected && !isThisCorrect && (
+                    <span className="text-xs font-mono font-semibold text-[#B45309] shrink-0 hidden sm:inline">
+                      Your Choice
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {question.questionType === "multiple-choice" && question.options && (
+          <div
+            className="space-y-2.5"
+            role="group"
+            aria-label="Multiple-correct answer options"
+          >
+            <div className="text-xs font-medium text-[#184E77]">
+              Multiple-Correct Format: Select one or more options that are
+              correct.
+            </div>
+            {question.options.map((opt) => {
+              const isSelected = selectedMultiple.includes(opt.id);
+              const isThisCorrect = (question.correctOptionIds || []).includes(
+                opt.id
+              );
+
+              let containerStyle =
+                "border-[#E2E5DC] bg-white hover:bg-[#FAF8F3] hover:border-[#C5CBC0] text-[#14241B]";
+              let badgeStyle =
+                "bg-[#FAF8F3] border-[#E2E5DC] text-[#48564D]";
+              let badgeText: string = opt.id;
+
+              if (!submitted && isSelected) {
+                containerStyle =
+                  "border-[#164A31] bg-[#EAF2EC]/85 text-[#14241B] ring-1 ring-[#164A31]";
+                badgeStyle = "bg-[#164A31] border-[#164A31] text-white";
+              } else if (submitted) {
+                if (isThisCorrect) {
+                  containerStyle =
+                    "border-[#164A31] bg-[#EAF2EC] text-[#14241B]";
+                  badgeStyle = "bg-[#164A31] border-[#164A31] text-white";
+                  badgeText = "✓";
+                } else if (isSelected && !isThisCorrect) {
+                  containerStyle =
+                    "border-[#D97706] bg-[#FFFBEB] text-[#14241B]";
+                  badgeStyle = "bg-[#D97706] border-[#D97706] text-white";
+                  badgeText = "✗";
+                } else {
+                  containerStyle =
+                    "border-[#E2E5DC] bg-[#FAF8F3]/60 text-[#6E7B72]";
+                }
+              }
+
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  disabled={submitted}
+                  onClick={() => toggleMultiOption(opt.id)}
+                  className={`w-full min-h-[54px] text-left px-4 py-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer disabled:cursor-default ${containerStyle}`}
+                >
+                  <div className="flex items-baseline gap-3.5 min-w-0 flex-1">
+                    <span
+                      className={`w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-mono font-semibold shrink-0 transition-colors ${badgeStyle}`}
+                    >
+                      {badgeText}
+                    </span>
+                    <div className="flex-1 min-w-0 overflow-x-auto text-sm sm:text-[15px] leading-relaxed py-0.5">
+                      <MarkdownContent content={opt.text} inline />
+                    </div>
+                  </div>
+
+                  {submitted && (
+                    <span className="text-xs font-mono font-semibold shrink-0 hidden sm:inline">
+                      {isThisCorrect && isSelected && (
+                        <span className="text-[#164A31]">✓ Selected</span>
+                      )}
+                      {isThisCorrect && !isSelected && (
+                        <span className="text-[#184E77]">Correct Option</span>
+                      )}
+                      {!isThisCorrect && isSelected && (
+                        <span className="text-[#B45309]">✗ Incorrect</span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {question.questionType === "numerical" && (
+          <div className="p-4 sm:p-5 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-2.5">
+            <label
+              htmlFor={`num-input-${question.id}`}
+              className="block text-xs font-semibold text-[#14241B]"
+            >
+              Enter Numerical Answer{" "}
+              {question.numericalUnit ? `(in ${question.numericalUnit})` : ""}
+            </label>
+            <div className="flex items-center gap-3 max-w-xs">
+              <input
+                id={`num-input-${question.id}`}
+                type="number"
+                step="any"
+                disabled={submitted}
+                value={numericalInput}
+                onChange={(e) => setNumericalInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && canSubmit && !submitted) {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                placeholder="e.g., 40"
+                className="w-full px-3.5 py-2.5 text-sm font-mono tabular-nums bg-white border border-[#E2E5DC] rounded-lg text-[#14241B]"
+              />
+              {question.numericalUnit && (
+                <span className="text-sm font-mono font-semibold text-[#48564D] shrink-0">
+                  {question.numericalUnit}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-[#6E7B72]">
+              Section B numerical questions carry +{question.marks.correct}{" "}
+              marks for correct entries and 0 negative marks.
+            </p>
+          </div>
+        )}
+
+        {/* 4. Clear Answer-Submission Action Bar */}
+        {!submitted && (
+          <div className="pt-3 border-t border-[#E2E5DC] flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-medium text-[#48564D]">
+                {currentSelectionSummary}
+              </span>
+              {canSubmit && (
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  className="inline-flex items-center gap-1 text-xs text-[#6E7B72] hover:text-[#14241B] underline cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Clear selection
+                </button>
+              )}
+            </div>
+
+            <Button
+              type="button"
+              variant="primary"
+              disabled={!canSubmit}
+              onClick={handleSubmit}
+            >
+              Submit Answer
+            </Button>
+          </div>
+        )}
+
+        {/* =====================================================================
+            5 & 6. POST-SUBMISSION DIAGNOSTIC FEEDBACK & WORKED SOLUTION
+           ===================================================================== */}
+        {submitted && (
+          <div className="pt-5 border-t border-[#E2E5DC] space-y-5">
+            {/* Diagnostic Status Banner + Side-by-side Answer Comparison */}
+            <div
+              className={`p-4 sm:p-5 rounded-xl border space-y-3.5 ${
+                isCorrect
+                  ? "bg-[#EAF2EC]/80 border-[#164A31]/30 text-[#14241B]"
+                  : "bg-[#FFFBEB] border-[#D97706]/40 text-[#14241B]"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-bold text-sm sm:text-base">
+                  {isCorrect ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-[#164A31] shrink-0" />
+                      <span>
+                        Correct Answer ·{" "}
+                        {marksAwarded >= 0 ? `+${marksAwarded}` : marksAwarded}{" "}
+                        Marks
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-5 h-5 text-[#B45309] shrink-0" />
+                      <span>
+                        Not Quite Right (
+                        {marksAwarded >= 0 ? `+${marksAwarded}` : marksAwarded}{" "}
+                        mark{Math.abs(marksAwarded) === 1 ? "" : "s"}) — review
+                        the solution below
+                      </span>
+                    </>
+                  )}
+                </div>
+                {!isCorrect && (
+                  <span className="text-xs font-medium text-[#8F4B00]">
+                    Saved to your Mistake Log
+                  </span>
                 )}
               </div>
-              <span className="text-xs font-mono text-[#48564D]">
-                Your answer: {getFormattedStudentAnswer()}
-              </span>
-            </div>
 
-            <div className="text-xs sm:text-sm pt-1 border-t border-current/10">
-              <strong className="text-[#14241B]">2. Correct Answer:</strong>{" "}
-              <span className="font-mono font-semibold text-[#164A31]">
-                {getFormattedCorrectAnswer()}
-              </span>
-            </div>
+              {/* Side-by-Side: Your Answer vs Correct Answer */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+                <div className="p-3 rounded-lg bg-white/90 border border-[#E2E5DC] space-y-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6E7B72]">
+                    Your Submitted Answer
+                  </div>
+                  <div className="font-medium text-[#14241B] overflow-x-auto">
+                    <MarkdownContent
+                      content={getFormattedStudentAnswer()}
+                      inline
+                    />
+                  </div>
+                </div>
 
-            {/* 4. Why the student's chosen answer is wrong (when applicable) */}
-            {!isCorrect && (
-              <div className="text-xs text-[#48564D] pt-1 leading-relaxed">
-                <strong className="text-[#14241B]">
-                  Why your selection is a common exam trap:
-                </strong>{" "}
-                {buildWrongAnswerExplanation()}
+                <div className="p-3 rounded-lg bg-white border border-[#164A31]/30 space-y-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#164A31]">
+                    Verified Correct Answer
+                  </div>
+                  <div className="font-semibold text-[#164A31] overflow-x-auto">
+                    <MarkdownContent
+                      content={getFormattedCorrectAnswer()}
+                      inline
+                    />
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* 3. Clear Step-by-Step Explanation & 5. Concept or Formula to Remember */}
-          <div className="bg-[#FAF8F3] border border-[#E2E5DC] rounded-xl p-4 sm:p-5 space-y-3.5">
-            <h4 className="text-xs font-semibold text-[#164A31]">
-              3. Step-by-Step Solution
-            </h4>
-            <ol className="space-y-2 text-xs sm:text-sm text-[#14241B] list-decimal list-inside leading-relaxed">
-              {question.stepByStepExplanation.map((step, i) => (
-                <li key={i}>
-                  <MathFormula expression={step} className="font-sans" />
-                </li>
-              ))}
-            </ol>
-
-            <div className="pt-3 border-t border-[#E2E5DC] space-y-1.5 text-xs">
-              <div>
-                <strong className="text-[#14241B]">
-                  Concept &amp; Formula to Remember:
-                </strong>{" "}
-                <span className="text-[#48564D]">{question.keyConceptTested}</span>
-              </div>
-              {question.formulaContext && (
-                <MathFormula expression={question.formulaContext} />
-              )}
-            </div>
-          </div>
-
-          {aiBreakdown && (
-            <div className="bg-[#EBF3F9] border border-[#C5DDF0] rounded-xl p-4 space-y-1.5">
-              <div className="text-xs font-semibold text-[#184E77]">
-                Personalised Tutor Breakdown
-              </div>
-              <div className="text-xs text-[#14241B] whitespace-pre-line leading-relaxed">
-                {aiBreakdown}
-              </div>
-            </div>
-          )}
-
-          {/* 6. Relevant Next Action based on performance */}
-          <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2.5">
-              {!isCorrect && onReviewConcept && (
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  onClick={() =>
-                    onReviewConcept(question.subjectId, question.topicId)
-                  }
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  Review Underlying Concept
-                </Button>
-              )}
-
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={handleResetTryAgain}
-              >
-                Try Question Again
-              </Button>
-
+              {/* Why the student's chosen answer is wrong (when applicable) */}
               {!isCorrect && (
-                <Button
-                  type="button"
-                  variant="lime"
-                  size="sm"
-                  onClick={handleRequestAiBreakdown}
-                  disabled={loadingBreakdown}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  {loadingBreakdown ? "Analysing..." : "Explain My Mistake"}
-                </Button>
-              )}
-
-              {onAskDoubtAboutQuestion && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    onAskDoubtAboutQuestion(
-                      `Can you help me understand this question: "${question.questionText}"?`
-                    )
-                  }
-                >
-                  Ask in AI Tutor
-                </Button>
+                <div className="px-3.5 py-2.5 rounded-lg bg-white/90 border border-[#FDE68A] text-xs text-[#92400E] leading-relaxed">
+                  <strong className="text-[#8F4B00]">
+                    Why your selection is a common exam trap:
+                  </strong>{" "}
+                  <MarkdownContent
+                    content={buildWrongAnswerExplanation()}
+                    inline
+                  />
+                </div>
               )}
             </div>
 
-            {onNextQuestion && (
-              <Button
-                type="button"
-                variant={isCorrect ? "primary" : "secondary"}
-                size="sm"
-                onClick={onNextQuestion}
-              >
-                {isCorrect ? "Next Challenge Question" : "Next Question"}
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Button>
+            {/* Worked Solution with Logical Steps & Clearly Identified Final Answer */}
+            <QuestionWorkedSolution question={question} />
+
+            {aiBreakdown && (
+              <div className="bg-[#EBF3F9] border border-[#C5DDF0] rounded-xl p-4 space-y-1.5">
+                <div className="text-xs font-semibold text-[#184E77]">
+                  Personalised Tutor Breakdown
+                </div>
+                <MarkdownContent
+                  content={aiBreakdown}
+                  className="text-xs sm:text-sm text-[#14241B] leading-relaxed"
+                />
+              </div>
             )}
+
+            {/* Relevant Next Actions based on performance */}
+            <div className="pt-1 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {!isCorrect && onReviewConcept && (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={() =>
+                      onReviewConcept(question.subjectId, question.topicId)
+                    }
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    Review Underlying Concept
+                  </Button>
+                )}
+
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleResetTryAgain}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Try Question Again
+                </Button>
+
+                {!isCorrect && (
+                  <Button
+                    type="button"
+                    variant="lime"
+                    size="sm"
+                    onClick={handleRequestAiBreakdown}
+                    disabled={loadingBreakdown}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {loadingBreakdown ? "Analysing..." : "Explain My Mistake"}
+                  </Button>
+                )}
+
+                {onAskDoubtAboutQuestion && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      onAskDoubtAboutQuestion(
+                        `Can you help me understand this question: "${question.questionText}"?`
+                      )
+                    }
+                  >
+                    Ask in AI Tutor
+                  </Button>
+                )}
+              </div>
+
+              {onNextQuestion && (
+                <Button
+                  type="button"
+                  variant={isCorrect ? "primary" : "secondary"}
+                  size="sm"
+                  onClick={onNextQuestion}
+                >
+                  {isCorrect ? "Next Challenge Question" : "Next Question"}
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </article>
   );
 }

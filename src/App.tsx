@@ -42,6 +42,7 @@ import {
   createFreshStudentState,
 } from "./data/curriculum";
 import { buildAdaptiveDailyPlan } from "./utils/personalisation";
+import { migrateLegacyStudentStateMath } from "./utils/mathContentContract";
 import { Button } from "./components/ui/Primitives";
 import { QuestionSubmissionPayload } from "./components/questions/QuestionCard";
 import { DiscoveryAndAuthView } from "./components/views/DiscoveryAndAuthView";
@@ -110,13 +111,13 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved) as StudentLearningState;
         if (parsed && parsed.profile) {
-          return parsed;
+          return migrateLegacyStudentStateMath(parsed);
         }
       }
     } catch {
       // Fallback to demo state if localStorage is unavailable
     }
-    return createDemoStudentState();
+    return migrateLegacyStudentStateMath(createDemoStudentState());
   });
 
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(() => {

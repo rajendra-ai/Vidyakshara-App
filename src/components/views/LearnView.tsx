@@ -26,7 +26,11 @@ import {
 } from "../../data/curriculum";
 import { Button, MetaLine, ProgressBar, SegmentedControl } from "../ui/Primitives";
 import { ConceptSimulator } from "../simulations/ConceptSimulator";
-import { MathFormula } from "../ui/MathAndDiagrams";
+import {
+  MarkdownContent,
+  MathRenderer,
+  WorkedSolution,
+} from "../ui/MathAndDiagrams";
 import { SubjectIllustration } from "../ui/SubjectIllustration";
 
 interface LearnViewProps {
@@ -536,7 +540,7 @@ export function LearnView({
                   <span className="font-mono text-xs font-semibold text-[#164A31] mt-0.5">
                     ✓
                   </span>
-                  <span>{obj}</span>
+                  <MarkdownContent content={obj} inline />
                 </li>
               ))}
             </ul>
@@ -548,9 +552,10 @@ export function LearnView({
           <h2 className="text-base font-semibold text-[#14241B]">
             Intuitive Picture
           </h2>
-          <p className="text-sm sm:text-base text-[#48564D] leading-relaxed">
-            {activeTopic.intuitiveIntro}
-          </p>
+          <MarkdownContent
+            content={activeTopic.intuitiveIntro}
+            className="text-sm sm:text-base text-[#48564D] leading-relaxed max-w-[72ch]"
+          />
         </section>
 
         {/* Clear Explanations Broken into Sections */}
@@ -558,20 +563,29 @@ export function LearnView({
           {activeTopic.conceptSections.map((sec, idx) => (
             <div
               key={idx}
-              className="space-y-3 pt-4 border-t border-[#E2E5DC] first:border-t-0 first:pt-0"
+              className="space-y-3.5 pt-5 border-t border-[#E2E5DC] first:border-t-0 first:pt-0"
             >
               <h3 className="text-lg font-semibold text-[#14241B]">
-                {sec.heading}
+                <MarkdownContent content={sec.heading} inline />
               </h3>
-              <p className="text-sm sm:text-base text-[#48564D] leading-relaxed">
-                {sec.explanation}
-              </p>
+              <MarkdownContent
+                content={sec.explanation}
+                className="text-sm sm:text-base text-[#48564D] leading-relaxed max-w-[72ch]"
+              />
               {sec.formulaHighlight && (
-                <MathFormula expression={sec.formulaHighlight} block />
+                <MathRenderer
+                  expression={sec.formulaHighlight}
+                  block
+                  variant="highlight"
+                  label="Important Formula"
+                />
               )}
               {sec.examTip && (
                 <div className="p-3.5 rounded-lg bg-[#EBF3F9] border border-[#C5DDF0] text-xs sm:text-sm text-[#184E77] leading-relaxed">
-                  <strong>Exam Tip:</strong> {sec.examTip}
+                  <strong className="uppercase tracking-wider text-[11px] mr-1.5">
+                    Shortcut &amp; Exam Tip:
+                  </strong>
+                  <MarkdownContent content={sec.examTip} inline />
                 </div>
               )}
             </div>
@@ -580,28 +594,34 @@ export function LearnView({
 
         {/* Relevant Formulas & Definitions */}
         <section className="space-y-3 pt-4 border-t border-[#E2E5DC]">
-          <h2 className="text-lg font-semibold text-[#14241B]">
-            Key Definitions &amp; Formulas
-          </h2>
-          <div className="divide-y divide-[#E2E5DC] border border-[#E2E5DC] rounded-xl overflow-hidden">
+          <div className="space-y-0.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#164A31]">
+              Reference Summary
+            </span>
+            <h2 className="text-lg font-semibold text-[#14241B]">
+              Definitions, Theorems &amp; Key Relations
+            </h2>
+          </div>
+          <div className="divide-y divide-[#E2E5DC] border border-[#E2E5DC] rounded-xl overflow-hidden bg-white">
             {activeTopic.definitionsAndFormulas.map((item, idx) => (
               <div
                 key={idx}
-                className="p-4 bg-[#FAF8F3] grid grid-cols-1 sm:grid-cols-12 gap-3 items-start"
+                className="p-4 sm:p-5 bg-[#FAF8F3]/60 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center"
               >
-                <div className="sm:col-span-4 space-y-1">
+                <div className="lg:col-span-6 space-y-1">
                   <div className="text-xs font-semibold text-[#14241B]">
-                    {item.term}
+                    <MarkdownContent content={item.term} inline />
                   </div>
                   {item.formula && (
-                    <MathFormula
+                    <MathRenderer
                       expression={item.formula}
-                      className="text-xs font-semibold text-[#164A31]"
+                      block
+                      variant="plain"
                     />
                   )}
                 </div>
-                <div className="sm:col-span-8 text-xs sm:text-sm text-[#48564D] leading-relaxed">
-                  {item.meaning}
+                <div className="lg:col-span-6 text-xs sm:text-sm text-[#48564D] leading-relaxed lg:border-l lg:border-[#E2E5DC] lg:pl-4">
+                  <MarkdownContent content={item.meaning} />
                 </div>
               </div>
             ))}
@@ -615,55 +635,15 @@ export function LearnView({
       {/* 3. WORKED EXAMPLES */}
       <section className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 space-y-6">
         <div>
-          <MetaLine items={["Step-by-Step Derivation"]} />
+          <MetaLine items={["Step-by-Step Derivations & Substitutions"]} />
           <h2 className="text-xl font-bold text-[#14241B] mt-0.5">
-            Worked Example
+            Solved Examples ({activeTopic.workedExamples.length})
           </h2>
         </div>
 
         <div className="space-y-6">
           {activeTopic.workedExamples.map((ex) => (
-            <div
-              key={ex.id}
-              className="p-5 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-4"
-            >
-              <div className="space-y-1">
-                <MetaLine items={[ex.examTag]} />
-                <h3 className="text-base font-semibold text-[#14241B]">
-                  {ex.title}
-                </h3>
-              </div>
-
-              <p className="text-sm sm:text-base text-[#14241B] font-serif leading-relaxed bg-white p-4 rounded-lg border border-[#E2E5DC]">
-                {ex.problemStatement}
-              </p>
-
-              <div className="space-y-3">
-                {ex.steps.map((st, sIdx) => (
-                  <div
-                    key={sIdx}
-                    className="p-3.5 rounded-lg bg-white border border-[#E2E5DC] space-y-1.5"
-                  >
-                    <div className="text-xs font-semibold text-[#164A31]">
-                      Step {sIdx + 1}: {st.stepTitle}
-                    </div>
-                    <p className="text-xs sm:text-sm text-[#48564D] leading-relaxed">
-                      {st.detail}
-                    </p>
-                    {st.formula && <MathFormula expression={st.formula} block />}
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-[#EAF2EC] border border-[#164A31]/30 text-xs sm:text-sm font-semibold text-[#14241B]">
-                Final Answer: <MathFormula expression={ex.finalAnswer} />
-              </div>
-
-              <div className="text-xs text-[#48564D] leading-relaxed">
-                <strong className="text-[#14241B]">Common Mistake to Avoid:</strong>{" "}
-                {ex.commonMistakeNote}
-              </div>
-            </div>
+            <WorkedSolution key={ex.id} example={ex} />
           ))}
         </div>
       </section>
@@ -684,7 +664,7 @@ export function LearnView({
                 <span className="font-mono text-xs font-semibold text-[#164A31] mt-0.5">
                   0{idx + 1}.
                 </span>
-                <span>{point}</span>
+                <MarkdownContent content={point} inline />
               </div>
             ))}
           </div>
@@ -696,9 +676,9 @@ export function LearnView({
             <span className="text-xs font-semibold text-[#164A31]">
               Quick Knowledge Check
             </span>
-            <p className="text-sm sm:text-base font-medium text-[#14241B]">
-              <MathFormula expression={kc.prompt} className="font-sans" />
-            </p>
+            <div className="text-sm sm:text-base font-medium text-[#14241B]">
+              <MarkdownContent content={kc.prompt} />
+            </div>
           </div>
 
           <div className="space-y-2" role="radiogroup" aria-label="Knowledge check options">
@@ -729,9 +709,7 @@ export function LearnView({
                   <span className="w-6 h-6 rounded-md border border-current/25 flex items-center justify-center font-mono text-xs font-semibold shrink-0">
                     {opt.id}
                   </span>
-                  <span>
-                    <MathFormula expression={opt.text} className="font-sans" />
-                  </span>
+                  <MarkdownContent content={opt.text} inline />
                 </button>
               );
             })}
@@ -765,9 +743,9 @@ export function LearnView({
                   ? "✓ Spot on! You grasped the core principle."
                   : `Option ${kc.correctId} is the right answer.`}
               </div>
-              <p className="text-[#48564D] leading-relaxed">
-                <MathFormula expression={kc.reinforcement} className="font-sans" />
-              </p>
+              <div className="text-[#48564D] leading-relaxed">
+                <MarkdownContent content={kc.reinforcement} />
+              </div>
             </div>
           )}
         </div>

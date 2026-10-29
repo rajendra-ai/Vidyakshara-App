@@ -27,7 +27,11 @@ import {
 } from "../../types/domain";
 import { SUBJECTS, TOPICS } from "../../data/curriculum";
 import { Button, MetaLine, SegmentedControl } from "../ui/Primitives";
-import { MathFormula, QuestionDiagramSvg } from "../ui/MathAndDiagrams";
+import {
+  MarkdownContent,
+  MathRenderer,
+  QuestionDiagramSvg,
+} from "../ui/MathAndDiagrams";
 
 interface DoubtSolverViewProps {
   state: StudentLearningState;
@@ -570,25 +574,26 @@ export function DoubtSolverView({
                 <p className="text-xs text-[#48564D] leading-relaxed">
                   {activeTopic.summary}
                 </p>
-                <div className="space-y-2.5">
+                <div className="divide-y divide-[#E2E5DC] rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] overflow-hidden">
                   {activeTopic.definitionsAndFormulas.map((item, idx) => (
                     <div
                       key={idx}
-                      className="p-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-1.5"
+                      className="p-3 space-y-1"
                     >
                       <div className="text-xs font-semibold text-[#14241B]">
-                        {item.term}
+                        <MarkdownContent content={item.term} inline />
                       </div>
                       {item.formula && (
-                        <MathFormula
+                        <MathRenderer
                           expression={item.formula}
                           block
-                          className="py-1.5 px-2.5 bg-white text-xs"
+                          variant="plain"
+                          className="text-xs"
                         />
                       )}
-                      <p className="text-[11px] text-[#48564D] leading-relaxed">
-                        {item.meaning}
-                      </p>
+                      <div className="text-[11px] text-[#48564D] leading-relaxed">
+                        <MarkdownContent content={item.meaning} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -742,34 +747,38 @@ export function DoubtSolverView({
                           <div className="text-[11px] font-semibold text-[#164A31] uppercase tracking-wider">
                             1. The Main Idea
                           </div>
-                          <p className="text-sm text-[#14241B] leading-relaxed font-medium">
-                            {s.mainIdea}
-                          </p>
+                          <div className="text-sm text-[#14241B] leading-relaxed font-medium">
+                            <MarkdownContent content={s.mainIdea} />
+                          </div>
                         </div>
 
-                        {/* 2. Step-by-Step Reasoning */}
+                        {/* 2. Step-by-Step Reasoning (Textbook hairline-separated steps, unboxed formulas) */}
                         {s.steps && s.steps.length > 0 && (
-                          <div className="space-y-2.5">
+                          <div className="rounded-lg bg-white border border-[#E2E5DC] p-3.5 sm:p-4 space-y-2">
                             <div className="text-[11px] font-semibold text-[#48564D] uppercase tracking-wider">
                               2. Step-by-Step Reasoning
                             </div>
-                            <ol className="space-y-2.5">
+                            <ol className="divide-y divide-[#E2E5DC]/80">
                               {s.steps.map((step, idx) => (
                                 <li
                                   key={idx}
-                                  className="p-3.5 rounded-lg bg-white border border-[#E2E5DC] space-y-2"
+                                  className="py-3 first:pt-1.5 last:pb-1 space-y-1.5"
                                 >
                                   <div className="text-xs font-semibold text-[#14241B]">
-                                    Step {idx + 1}: {step.title}
+                                    <span className="font-mono text-[#164A31] mr-1.5">
+                                      Step {idx + 1}.
+                                    </span>
+                                    <MarkdownContent content={step.title} inline />
                                   </div>
-                                  <p className="text-xs sm:text-sm text-[#48564D] leading-relaxed">
-                                    {step.explanation}
-                                  </p>
+                                  <div className="text-xs sm:text-sm text-[#48564D] leading-relaxed">
+                                    <MarkdownContent content={step.explanation} />
+                                  </div>
                                   {step.formula && (
-                                    <MathFormula
+                                    <MathRenderer
                                       expression={step.formula}
                                       block
-                                      className="bg-[#FAF8F3] py-2 px-3 text-xs"
+                                      variant="plain"
+                                      className="text-xs"
                                     />
                                   )}
                                 </li>
@@ -782,15 +791,15 @@ export function DoubtSolverView({
                         {(s.formulaExpression ||
                           s.formulaOrDiagramNote ||
                           s.diagramType) && (
-                          <div className="p-3.5 rounded-lg bg-[#EBF3F9] border border-[#C5DDF0] space-y-2.5">
+                          <div className="p-3.5 rounded-lg bg-[#EBF3F9] border border-[#C5DDF0] space-y-2">
                             <div className="text-[11px] font-semibold text-[#184E77] uppercase tracking-wider">
-                              3. Formula &amp; Visual Concept
+                              3. Key Formula &amp; Visual Concept
                             </div>
                             {s.formulaExpression && (
-                              <MathFormula
+                              <MathRenderer
                                 expression={s.formulaExpression}
                                 block
-                                className="bg-white border-[#C5DDF0]"
+                                variant="plain"
                               />
                             )}
                             {s.diagramType && (
@@ -799,9 +808,9 @@ export function DoubtSolverView({
                               </div>
                             )}
                             {s.formulaOrDiagramNote && (
-                              <p className="text-xs text-[#14241B] leading-relaxed">
-                                {s.formulaOrDiagramNote}
-                              </p>
+                              <div className="text-xs text-[#14241B] leading-relaxed">
+                                <MarkdownContent content={s.formulaOrDiagramNote} />
+                              </div>
                             )}
                           </div>
                         )}
@@ -812,9 +821,9 @@ export function DoubtSolverView({
                             <div className="text-[11px] font-semibold text-[#164A31] uppercase tracking-wider">
                               4. Final Answer
                             </div>
-                            <p className="text-sm font-semibold text-[#14241B] leading-relaxed">
-                              {s.finalAnswer}
-                            </p>
+                            <div className="text-sm font-semibold text-[#14241B] leading-relaxed overflow-x-auto max-w-full">
+                              <MarkdownContent content={s.finalAnswer} />
+                            </div>
                           </div>
                         )}
 
@@ -824,9 +833,9 @@ export function DoubtSolverView({
                             <div className="text-[11px] font-semibold text-[#8F4B00] uppercase tracking-wider">
                               5. Common Exam Mistake to Avoid
                             </div>
-                            <p className="text-xs sm:text-sm text-[#14241B] leading-relaxed">
-                              {s.commonMistake}
-                            </p>
+                            <div className="text-xs sm:text-sm text-[#14241B] leading-relaxed">
+                              <MarkdownContent content={s.commonMistake} />
+                            </div>
                           </div>
                         )}
 
@@ -841,9 +850,9 @@ export function DoubtSolverView({
                                 Optional Practice Question
                               </span>
                             </div>
-                            <p className="text-xs sm:text-sm font-serif text-[#14241B] leading-relaxed">
-                              {s.practiceQuestion.prompt}
-                            </p>
+                            <div className="text-xs sm:text-sm font-serif text-[#14241B] leading-relaxed">
+                              <MarkdownContent content={s.practiceQuestion.prompt} />
+                            </div>
 
                             {s.practiceQuestion.options &&
                               s.practiceQuestion.options.length > 0 && (
@@ -886,7 +895,7 @@ export function DoubtSolverView({
                                               : "bg-[#FAF8F3] border-[#E2E5DC] text-[#14241B] hover:border-[#164A31]"
                                           }`}
                                         >
-                                          {optText}
+                                          <MarkdownContent content={optText} inline />
                                         </button>
                                       );
                                     }
@@ -914,22 +923,28 @@ export function DoubtSolverView({
                             {revealedPracticeSolutions[msg.id] && (
                               <div className="p-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-1 text-xs">
                                 <div className="font-semibold text-[#164A31] flex items-center gap-1.5">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  Correct Answer:{" "}
-                                  {s.practiceQuestion.correctAnswer}
+                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Correct Answer: </span>
+                                  <MarkdownContent
+                                    content={s.practiceQuestion.correctAnswer}
+                                    inline
+                                  />
                                 </div>
-                                <p className="text-[#48564D] leading-relaxed">
-                                  {s.practiceQuestion.hintOrSolution}
-                                </p>
+                                <div className="text-[#48564D] leading-relaxed">
+                                  <MarkdownContent
+                                    content={s.practiceQuestion.hintOrSolution}
+                                  />
+                                </div>
                               </div>
                             )}
                           </div>
                         )}
                       </div>
                     ) : (
-                      <div className="text-sm whitespace-pre-line leading-relaxed">
-                        {msg.text}
-                      </div>
+                      <MarkdownContent
+                        content={msg.text}
+                        className="text-sm leading-relaxed"
+                      />
                     )}
 
                     {/* Follow-up Pedagogical Actions & Save to Notes on Tutor Messages */}

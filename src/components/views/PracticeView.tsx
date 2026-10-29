@@ -27,6 +27,7 @@ import {
   QuestionCard,
   QuestionSubmissionPayload,
 } from "../questions/QuestionCard";
+import { MarkdownContent } from "../ui/MathAndDiagrams";
 
 interface PracticeViewProps {
   state: StudentLearningState;
@@ -452,9 +453,9 @@ export function PracticeView({
                             mq.keyConceptTested,
                           ]}
                         />
-                        <p className="text-xs sm:text-sm font-medium text-[#14241B] line-clamp-1">
-                          {mq.questionText}
-                        </p>
+                        <div className="text-xs sm:text-sm font-medium text-[#14241B] line-clamp-1">
+                          <MarkdownContent content={mq.questionText} inline />
+                        </div>
                       </div>
                       <Button
                         type="button"
@@ -656,6 +657,8 @@ export function PracticeView({
             <QuestionCard
               key={activeQuestion.id}
               question={activeQuestion}
+              questionNumber={safeIndex + 1}
+              totalQuestions={filteredQuestions.length}
               existingAttempt={[...state.attempts]
                 .reverse()
                 .find((a) => a.questionId === activeQuestion.id)}

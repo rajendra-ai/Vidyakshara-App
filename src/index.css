@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 
 @theme {
   --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
@@ -53,6 +54,147 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Digital Textbook Mathematical Typesetting Rules (KaTeX) */
+.katex {
+  font-size: 1.03em;
+  line-height: 1.25;
+  color: inherit;
+  text-rendering: optimizeLegibility;
+}
+
+/* Inline math alignment within prose and option rows */
+p .katex,
+li .katex,
+span .katex,
+td .katex {
+  vertical-align: -0.015em;
+}
+
+/* Standalone display equations: balanced vertical rhythm and local scroll containment */
+.katex-display {
+  margin: 0.9rem 0;
+  padding: 0.45rem 0.35rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #CBD2C6 transparent;
+}
+
+/* Display math inside dedicated formula containers uses the container's own padding */
+.vidya-math-surface .katex-display {
+  margin: 0.15rem 0;
+  padding: 0.2rem 0.15rem;
+}
+
+.katex-display > .katex {
+  white-space: nowrap;
+  font-size: 1.08em;
+}
+
+.katex-display::-webkit-scrollbar {
+  height: 5px;
+}
+
+.katex-display::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.katex-display::-webkit-scrollbar-thumb {
+  background-color: #D2D7CC;
+  border-radius: 9999px;
+}
+
+/* Responsive sizing on tablet and mobile so long equations stay proportional */
+@media (max-width: 640px) {
+  .katex {
+    font-size: 0.98em;
+  }
+
+  .katex-display > .katex {
+    font-size: 1.01em;
+  }
+
+  .katex-display {
+    margin: 0.65rem 0;
+    padding: 0.35rem 0.2rem;
+  }
+}
+
+.katex-error {
+  color: #8F4B00 !important;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background-color: #FDF6E7;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+
+/* Textbook Markdown Prose, Tables & Lists */
+.vidya-markdown {
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+.vidya-markdown p {
+  line-height: 1.72;
+}
+
+.vidya-markdown p + p {
+  margin-top: 0.75rem;
+}
+
+.vidya-markdown ul {
+  list-style-type: disc;
+  padding-left: 1.35rem;
+  margin: 0.55rem 0;
+}
+
+.vidya-markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.35rem;
+  margin: 0.55rem 0;
+}
+
+.vidya-markdown li {
+  line-height: 1.68;
+}
+
+.vidya-markdown li + li {
+  margin-top: 0.3rem;
+}
+
+.vidya-markdown blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.85rem;
+  background-color: #FAF8F3;
+  border: 1px solid #E2E5DC;
+  border-radius: 0.5rem;
+  color: #48564D;
+}
+
+.vidya-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.85rem 0;
+  font-size: 0.875rem;
+}
+
+.vidya-markdown th,
+.vidya-markdown td {
+  border: 1px solid #E2E5DC;
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.vidya-markdown th {
+  background-color: #FAF8F3;
+  font-weight: 600;
+  color: #14241B;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;
@@ -61,3 +203,5 @@
     scroll-behavior: auto !important;
   }
 }
+
+

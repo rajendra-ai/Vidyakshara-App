@@ -161,6 +161,20 @@ export interface QuestionOption {
   trapReason?: string;
 }
 
+export interface QuestionSolutionStep {
+  label?: string;
+  content: string;
+  formula?: string;
+}
+
+export interface QuestionSolutionBreakdown {
+  given?: string[];
+  conceptOrFormula?: string;
+  steps?: QuestionSolutionStep[];
+  finalAnswer: string;
+  underlyingConcept?: string;
+}
+
 export interface Question {
   id: string;
   subjectId: SubjectId;
@@ -186,6 +200,7 @@ export interface Question {
   numericalTolerance?: number;
   numericalUnit?: string;
   stepByStepExplanation: string[];
+  solutionBreakdown?: QuestionSolutionBreakdown;
   keyConceptTested: string;
   commonMistakeSummary: string;
 }

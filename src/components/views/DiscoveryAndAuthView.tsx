@@ -19,6 +19,7 @@ import {
 } from "../../types/domain";
 import { SUBJECTS } from "../../data/curriculum";
 import { Button, MetaLine, ProgressBar, SegmentedControl } from "../ui/Primitives";
+import { MarkdownContent, MathRenderer } from "../ui/MathAndDiagrams";
 import { SubjectIllustration } from "../ui/SubjectIllustration";
 
 interface DiscoveryAndAuthViewProps {
@@ -301,13 +302,19 @@ export function DiscoveryAndAuthView({
                       subjectId="physics"
                       className="w-full h-36"
                     />
-                    <div className="p-3.5 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-1.5">
+                    <div className="p-3.5 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-2">
                       <div className="text-xs font-semibold text-[#14241B]">
                         Why external charges give zero net flux
                       </div>
-                      <p className="text-xs text-[#48564D] leading-relaxed">
-                        Every electric field line from an outside charge that enters a closed surface also exits it, so inward and outward flux cancel out: <span className="font-mono text-[#164A31]">Φ_net = q_enclosed / ε₀</span>.
-                      </p>
+                      <MarkdownContent
+                        content="Every electric field line from an outside charge that enters a closed surface also exits it, so inward and outward flux cancel out:"
+                        className="text-xs text-[#48564D] leading-relaxed"
+                      />
+                      <MathRenderer
+                        expression="\Phi_{\text{net}} = \oint_S \vec{E}\cdot d\vec{A} = \frac{q_{\text{enclosed}}}{\varepsilon_0}"
+                        block
+                        className="bg-white py-2 px-3 text-xs"
+                      />
                     </div>
                   </div>
                 )}
@@ -320,22 +327,31 @@ export function DiscoveryAndAuthView({
                         "Option Trap Explanation",
                       ]}
                     />
-                    <p className="text-xs sm:text-sm font-medium text-[#14241B] leading-relaxed">
-                      A projectile is launched with kinetic energy K at 60° to the horizontal. What is its kinetic energy at the highest point?
-                    </p>
+                    <MarkdownContent
+                      content="A projectile is launched with kinetic energy $K$ at $60^\circ$ to the horizontal. What is its kinetic energy at the highest point?"
+                      className="text-xs sm:text-sm font-medium text-[#14241B] leading-relaxed"
+                    />
                     <div className="space-y-2 text-xs">
-                      <div className="p-2.5 rounded-lg border border-[#164A31] bg-[#EAF2EC] text-[#14241B] flex items-center justify-between">
-                        <span>A. K / 4 (v_top = u cos 60° = u/2)</span>
-                        <span className="font-semibold text-[#164A31]">✓ Correct</span>
+                      <div className="p-2.5 rounded-lg border border-[#164A31] bg-[#EAF2EC] text-[#14241B] flex items-center justify-between gap-2">
+                        <MarkdownContent
+                          content="A. $\dfrac{K}{4}$ since $v_{\text{top}} = u\cos 60^\circ = \dfrac{u}{2}$"
+                          inline
+                        />
+                        <span className="font-semibold text-[#164A31] shrink-0">
+                          ✓ Correct
+                        </span>
                       </div>
                       <div className="p-2.5 rounded-lg border border-[#D97706]/50 bg-[#FFFBEB] text-[#14241B]">
                         <div className="flex items-center justify-between font-medium">
-                          <span>C. K / 2</span>
+                          <MarkdownContent content="C. $\dfrac{K}{2}$" inline />
                           <span className="text-[#B45309]">Common Trap</span>
                         </div>
-                        <p className="text-[11px] text-[#48564D] mt-1">
-                          Trap: cos(60°) = 1/2, but kinetic energy depends on speed squared: (1/2)² = 1/4.
-                        </p>
+                        <div className="text-[11px] text-[#48564D] mt-1">
+                          <MarkdownContent
+                            content="Trap: $\cos 60^\circ = \frac{1}{2}$, but kinetic energy depends on speed squared: $K_{\text{top}} = K\cos^2 60^\circ = \left(\frac{1}{2}\right)^2 K = \frac{K}{4}$."
+                            inline
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -356,12 +372,9 @@ export function DiscoveryAndAuthView({
                       <div className="font-semibold text-[#164A31]">
                         Vidyakshara Tutor:
                       </div>
-                      <p>
-                        1. Active muscles release more <strong>CO₂</strong>, <strong>H⁺ ions (lower pH)</strong>, and <strong>heat</strong>.
-                      </p>
-                      <p>
-                        2. By the <strong>Bohr effect</strong>, H⁺ binds to haemoglobin and lowers its O₂ affinity, shifting the curve right so oxygen is unloaded faster to working cells.
-                      </p>
+                      <MarkdownContent
+                        content={`1. Active muscles release more $\\text{CO}_2$, $\\text{H}^+$ ions (lower $\\text{pH}$), and metabolic heat.\n\n2. By the **Bohr effect**, $\\text{H}^+$ binds to haemoglobin ($\\text{Hb} + \\text{O}_2 \\rightleftharpoons \\text{HbO}_2$) and raises $P_{50}$, shifting the curve right so $\\text{O}_2$ unloads faster to working cells.`}
+                      />
                     </div>
                   </div>
                 )}

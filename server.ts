@@ -5,6 +5,13 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
+import {
+  MATH_CONTENT_CONTRACT_PROMPT,
+  formatStructuredTutorMarkdown,
+  normalizeMathContent,
+  normalizeStructuredTutorResponse,
+  parseTutorJsonSafely,
+} from "./src/utils/mathContentContract";
 
 dotenv.config();
 
@@ -194,14 +201,7 @@ function getExplanationModeInstructions(mode?: string): string {
 
 function cleanMathString(str?: string): string | undefined {
   if (!str) return undefined;
-  return str
-    .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, "($1) / ($2)")
-    .replace(/\\sqrt\{([^}]+)\}/g, "√($1)")
-    .replace(/\\int_\{([^}]+)\}\^\{([^}]+)\}/g, "∫[$1 to $2]")
-    .replace(/\\cdot/g, "·")
-    .replace(/\\times/g, "×")
-    .replace(/\$/g, "")
-    .trim();
+  return normalizeMathContent(str);
 }
 
 app.get("/api/tutor/status", (_req, res) => {
@@ -304,7 +304,7 @@ app.post("/api/tutor/doubt", async (req, res) => {
       targetExam || "JEE Main, JEE Advanced, and NEET UG"
     }.
 
-CORE PEDAGOGICAL & SAFEGUARD RULES:
+CORE PEDAGOGICAL & SAFEGUARDS RULES:
 1. Respect the target exam level (Class ${studentClass || "12"} · ${
       targetExam || "JEE/NEET"
     }). Keep explanations clear, encouraging, and age-appropriate (16–18 years old). Do not make answers unnecessarily advanced unless the question requires it.
@@ -314,9 +314,7 @@ CORE PEDAGOGICAL & SAFEGUARD RULES:
    - Never invent scientific facts, formulas, answer keys, or citations.
    - For calculations, show intermediate steps and unit substitutions so the result is checkable. Where any uncertainty exists (for example, if an uploaded image is partially unclear or a question statement is ambiguous), state that uncertainty transparently.
    - Do NOT claim you have access to the student's private notes, previous test scores, full syllabus, or other files unless they are explicitly included in this message.
-5. MATHEMATICAL FORMATTING:
-   - Never output raw LaTeX backslashes (such as \\frac, \\int, \\sqrt, or $...$).
-   - Write readable mathematical notation using Unicode symbols and clear subscripts/superscripts: e.g. Φ = q_enclosed / ε_0, ∫[a to b] f(x) dx, v_top = u cos θ, E_cell = E°_cell − (0.0591 / n) log Q, x^2.
+5. ${MATH_CONTENT_CONTRACT_PROMPT}
 6. Match the response depth to the student's question: for a brief follow-up question, keep steps concise; for a full concept or numerical problem, provide the complete structured breakdown.`;
 
     const promptText = `${
@@ -374,7 +372,7 @@ Student Question: ${
               mainIdea: {
                 type: Type.STRING,
                 description:
-                  "1. The main idea or intuitive core takeaway in 1-3 clear sentences.",
+                  "1. The main idea or intuitive core takeaway in 1-3 clear sentences (use $...$ for inline LaTeX math).",
               },
               steps: {
                 type: Type.ARRAY,
@@ -390,12 +388,12 @@ Student Question: ${
                     explanation: {
                       type: Type.STRING,
                       description:
-                        "Clear explanation of this step and the reason behind it.",
+                        "Clear explanation of this step and the reason behind it (use $...$ for inline LaTeX math).",
                     },
                     formula: {
                       type: Type.STRING,
                       description:
-                        "Optional equation or mathematical expression used in this step (readable Unicode math, no raw LaTeX).",
+                        "Optional display equation or mathematical expression used in this step (LaTeX math, e.g. $$\\Phi = \\frac{q}{\\varepsilon_0}$$).",
                     },
                   },
                   required: ["title", "explanation"],
@@ -404,7 +402,7 @@ Student Question: ${
               formulaExpression: {
                 type: Type.STRING,
                 description:
-                  "3a. Key formula or reaction equation to remember, if applicable (readable Unicode math, no raw LaTeX).",
+                  "3a. Key formula or reaction equation to remember, if applicable (LaTeX math).",
               },
               formulaOrDiagramNote: {
                 type: Type.STRING,
@@ -414,7 +412,7 @@ Student Question: ${
               finalAnswer: {
                 type: Type.STRING,
                 description:
-                  "4. Clear final answer or conclusion summarizing the result.",
+                  "4. Clear final answer or conclusion summarizing the result (with LaTeX math where applicable).",
               },
               commonMistake: {
                 type: Type.STRING,
@@ -428,7 +426,7 @@ Student Question: ${
                 properties: {
                   prompt: {
                     type: Type.STRING,
-                    description: "The practice question stem.",
+                    description: "The practice question stem (with $...$ LaTeX math).",
                   },
                   options: {
                     type: Type.ARRAY,
@@ -472,34 +470,23 @@ Student Question: ${
       return;
     }
 
-    let parsed: {
-      mainIdea?: string;
-      steps?: { title: string; explanation: string; formula?: string }[];
-      formulaExpression?: string;
-      formulaOrDiagramNote?: string;
-      finalAnswer?: string;
-      commonMistake?: string;
-      practiceQuestion?: {
-        prompt: string;
-        options?: string[];
-        correctAnswer: string;
-        hintOrSolution: string;
-      };
-      suggestedFollowUps?: string[];
-    };
+    const parsed = parseTutorJsonSafely<Record<string, unknown>>(rawText);
+    const structured = parsed
+      ? normalizeStructuredTutorResponse(parsed, {
+          topicTitle: topicContext?.title,
+          subjectName: subject,
+        })
+      : normalizeStructuredTutorResponse(
+          {
+            mainIdea: rawText,
+          },
+          {
+            topicTitle: topicContext?.title,
+            subjectName: subject,
+          }
+        );
 
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      res.status(502).json({
-        error:
-          "The AI tutor returned an unreadable response format. Please try asking your question again.",
-        code: "INVALID_RESPONSE",
-      });
-      return;
-    }
-
-    if (!parsed || typeof parsed.mainIdea !== "string" || !parsed.mainIdea.trim()) {
+    if (!structured || !structured.mainIdea) {
       res.status(502).json({
         error:
           "The AI tutor could not complete a structured explanation for that input. Please rephrase or try again.",
@@ -508,65 +495,8 @@ Student Question: ${
       return;
     }
 
-    const structured = {
-      mainIdea: cleanMathString(parsed.mainIdea) || parsed.mainIdea,
-      steps: Array.isArray(parsed.steps)
-        ? parsed.steps.map((s) => ({
-            title: cleanMathString(s.title) || s.title,
-            explanation: cleanMathString(s.explanation) || s.explanation,
-            formula: cleanMathString(s.formula),
-          }))
-        : [],
-      formulaExpression: cleanMathString(parsed.formulaExpression),
-      formulaOrDiagramNote: cleanMathString(parsed.formulaOrDiagramNote),
-      finalAnswer: cleanMathString(parsed.finalAnswer),
-      commonMistake: cleanMathString(parsed.commonMistake),
-      practiceQuestion:
-        parsed.practiceQuestion && parsed.practiceQuestion.prompt
-          ? {
-              prompt:
-                cleanMathString(parsed.practiceQuestion.prompt) ||
-                parsed.practiceQuestion.prompt,
-              options: Array.isArray(parsed.practiceQuestion.options)
-                ? parsed.practiceQuestion.options.map(
-                    (o) => cleanMathString(o) || o
-                  )
-                : undefined,
-              correctAnswer:
-                cleanMathString(parsed.practiceQuestion.correctAnswer) ||
-                parsed.practiceQuestion.correctAnswer,
-              hintOrSolution:
-                cleanMathString(parsed.practiceQuestion.hintOrSolution) ||
-                parsed.practiceQuestion.hintOrSolution,
-            }
-          : undefined,
-      suggestedFollowUps: Array.isArray(parsed.suggestedFollowUps)
-        ? parsed.suggestedFollowUps.slice(0, 3)
-        : undefined,
-    };
-
-    const summaryLines: string[] = [structured.mainIdea];
-    if (structured.steps && structured.steps.length > 0) {
-      summaryLines.push(
-        structured.steps
-          .map(
-            (s, i) =>
-              `${i + 1}. ${s.title}: ${s.explanation}${
-                s.formula ? ` (${s.formula})` : ""
-              }`
-          )
-          .join("\n")
-      );
-    }
-    if (structured.finalAnswer) {
-      summaryLines.push(`Final Answer: ${structured.finalAnswer}`);
-    }
-    if (structured.commonMistake) {
-      summaryLines.push(`Common Mistake to Avoid: ${structured.commonMistake}`);
-    }
-
     res.json({
-      reply: summaryLines.join("\n\n"),
+      reply: formatStructuredTutorMarkdown(structured),
       structured,
       mode: "live-ai",
     });
@@ -640,11 +570,14 @@ Student chose: ${selectedOption}
 Correct answer: ${correctOption}
 Verified explanation: ${explanation}
 
-In 3 short, friendly points (using readable Unicode math, never raw LaTeX), explain:
+In 3 short, friendly points (using Markdown for prose, $...$ for inline formulas, and $$...$$ for display equations), explain:
 1. Why the student's chosen answer is a tempting mistake.
-2. The key physical/chemical/mathematical intuition that leads to the correct answer.
+2. The key physical/chemical/mathematical intuition and derivation step that leads to the correct answer.
 3. One quick memory hook for the exam.`,
         config: {
+          systemInstruction: `You are the Vidyakshara Academic Tutor helping a student review a mistake in ${
+            subject || "Science"
+          } (${targetExam || "JEE/NEET"}).\n\n${MATH_CONTENT_CONTRACT_PROMPT}`,
           temperature: 0.3,
         },
       },

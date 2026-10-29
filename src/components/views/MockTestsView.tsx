@@ -22,7 +22,11 @@ import {
 } from "../../types/domain";
 import { MOCK_TESTS, QUESTIONS, SUBJECTS, TOPICS } from "../../data/curriculum";
 import { Button, MetaLine, ModalDialog } from "../ui/Primitives";
-import { MathFormula, QuestionDiagramSvg } from "../ui/MathAndDiagrams";
+import {
+  MarkdownContent,
+  QuestionContent,
+  QuestionWorkedSolution,
+} from "../ui/MathAndDiagrams";
 
 interface MockTestsViewProps {
   state: StudentLearningState;
@@ -235,12 +239,12 @@ export function MockTestsView({
           {/* Question Workspace (8 Cols) */}
           <div className="lg:col-span-8 bg-white border border-[#E2E5DC] rounded-xl p-6 space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E5DC] pb-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-mono font-semibold text-[#164A31]">
+              <div className="flex items-center gap-2.5">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-[#164A31] text-white text-xs font-mono font-semibold tabular-nums">
                   Question {currentQIdx + 1} of {testQuestions.length}
                 </span>
                 <span className="text-xs text-[#6E7B72]">
-                  · {selectedOpt ? `Answered (${selectedOpt})` : "Unanswered"}
+                  {selectedOpt ? `Answered (Option ${selectedOpt})` : "Unanswered"}
                   {isFlagged ? " · Marked for Review" : ""}
                 </span>
               </div>
@@ -253,24 +257,7 @@ export function MockTestsView({
               />
             </div>
 
-            <p className="text-base font-serif font-medium text-[#14241B] leading-relaxed">
-              {currentQ.questionText}
-            </p>
-
-            {currentQ.diagramType && (
-              <div>
-                <QuestionDiagramSvg type={currentQ.diagramType} />
-              </div>
-            )}
-
-            {currentQ.formulaContext && (
-              <div className="space-y-1">
-                <span className="text-[11px] font-semibold text-[#6E7B72]">
-                  Given Data / Reference Relation:
-                </span>
-                <MathFormula expression={currentQ.formulaContext} block />
-              </div>
-            )}
+            <QuestionContent question={currentQ} />
 
             <div
               className="space-y-2.5"
@@ -283,24 +270,32 @@ export function MockTestsView({
                   <button
                     key={opt.id}
                     type="button"
+                    role="radio"
+                    aria-checked={chosen}
                     onClick={() =>
                       setAnswers((prev) => ({
                         ...prev,
                         [currentQ.id]: opt.id,
                       }))
                     }
-                    className={`w-full text-left p-3.5 rounded-lg border transition-colors flex items-start gap-3 cursor-pointer ${
+                    className={`w-full min-h-[54px] text-left px-4 py-3.5 rounded-xl border transition-all flex items-baseline gap-3.5 cursor-pointer ${
                       chosen
-                        ? "border-[#164A31] bg-[#EAF2EC] text-[#14241B]"
-                        : "border-[#E2E5DC] bg-white hover:bg-[#FAF8F3] text-[#14241B]"
+                        ? "border-[#164A31] bg-[#EAF2EC]/85 text-[#14241B] ring-1 ring-[#164A31]"
+                        : "border-[#E2E5DC] bg-white hover:bg-[#FAF8F3] hover:border-[#C5CBC0] text-[#14241B]"
                     }`}
                   >
-                    <span className="w-6 h-6 rounded-md border border-current/25 flex items-center justify-center text-xs font-mono font-semibold shrink-0">
+                    <span
+                      className={`w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-mono font-semibold shrink-0 transition-colors ${
+                        chosen
+                          ? "bg-[#164A31] border-[#164A31] text-white"
+                          : "bg-[#FAF8F3] border-[#E2E5DC] text-[#48564D]"
+                      }`}
+                    >
                       {opt.id}
                     </span>
-                    <span className="text-sm leading-relaxed">
-                      <MathFormula expression={opt.text} />
-                    </span>
+                    <div className="flex-1 min-w-0 overflow-x-auto text-sm sm:text-[15px] leading-relaxed py-0.5">
+                      <MarkdownContent content={opt.text} inline />
+                    </div>
                   </button>
                 );
               })}
@@ -750,20 +745,29 @@ export function MockTestsView({
               q.topicId
             );
 
+            const chosenDistractorTrap =
+              studentChoice && !isCorrect
+                ? q.options?.find((o) => o.id === studentChoice)?.trapReason
+                : undefined;
+
             return (
               <div
                 key={q.id}
-                className="bg-white border border-[#E2E5DC] rounded-xl p-6 space-y-4"
+                className="bg-white border border-[#E2E5DC] rounded-xl p-5 sm:p-6 space-y-5"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <MetaLine
-                    items={[
-                      `Question ${idx + 1}`,
-                      q.subjectId.toUpperCase(),
-                      topic?.title,
-                      wasFlagged ? "Marked for Review" : undefined,
-                    ]}
-                  />
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#E2E5DC]">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-[#164A31] text-white font-mono text-xs font-semibold tabular-nums">
+                      Question {idx + 1} of {resultQuestions.length}
+                    </span>
+                    <MetaLine
+                      items={[
+                        q.subjectId.toUpperCase(),
+                        topic?.title,
+                        wasFlagged ? "Marked for Review" : undefined,
+                      ]}
+                    />
+                  </div>
                   <span
                     className={`text-xs font-mono font-semibold ${
                       !studentChoice
@@ -781,44 +785,53 @@ export function MockTestsView({
                   </span>
                 </div>
 
-                <p className="text-sm sm:text-base font-serif font-medium text-[#14241B] leading-relaxed">
-                  {q.questionText}
-                </p>
+                <QuestionContent question={q} showFormulaLabel={false} />
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC]">
-                    <span className="text-[#6E7B72]">Your Answer: </span>
-                    <strong className="text-[#14241B]">
-                      {studentChoice
-                        ? `Option ${studentChoice} — ${
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+                  <div className="p-3.5 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6E7B72] block">
+                      Your Submitted Answer
+                    </span>
+                    <strong className="text-[#14241B] block overflow-x-auto">
+                      {studentChoice ? (
+                        <MarkdownContent
+                          content={`Option ${studentChoice} — ${
                             q.options?.find((o) => o.id === studentChoice)
                               ?.text || ""
-                          }`
-                        : "Not Attempted"}
+                          }`}
+                          inline
+                        />
+                      ) : (
+                        "Not Attempted"
+                      )}
                     </strong>
                   </div>
-                  <div className="p-3 rounded-lg bg-[#EAF2EC] border border-[#164A31]/30">
-                    <span className="text-[#48564D]">Correct Answer: </span>
-                    <strong className="text-[#164A31]">
-                      Option {q.correctOptionId} —{" "}
-                      {q.options?.find((o) => o.id === q.correctOptionId)?.text}
+                  <div className="p-3.5 rounded-lg bg-[#EAF2EC]/80 border border-[#164A31]/30 space-y-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#164A31] block">
+                      Verified Correct Answer
+                    </span>
+                    <strong className="text-[#164A31] block overflow-x-auto">
+                      <MarkdownContent
+                        content={`Option ${q.correctOptionId} — ${
+                          q.options?.find((o) => o.id === q.correctOptionId)
+                            ?.text || ""
+                        }`}
+                        inline
+                      />
                     </strong>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-2 text-xs text-[#48564D]">
-                  <div className="font-semibold text-[#14241B]">
-                    Step-by-Step Solution:
+                {chosenDistractorTrap && (
+                  <div className="px-3.5 py-2.5 rounded-lg bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E] leading-relaxed">
+                    <strong className="text-[#8F4B00]">
+                      Why Option {studentChoice} is a trap:
+                    </strong>{" "}
+                    <MarkdownContent content={chosenDistractorTrap} inline />
                   </div>
-                  {q.stepByStepExplanation.map((st, i) => (
-                    <div key={i} className="leading-relaxed">
-                      {i + 1}. <MathFormula expression={st} />
-                    </div>
-                  ))}
-                  <div className="pt-1 text-[#8F4B00] font-medium">
-                    Common Trap to Avoid: {q.commonMistakeSummary}
-                  </div>
-                </div>
+                )}
+
+                <QuestionWorkedSolution question={q} />
 
                 {/* Actionable Follow-up Links per Question */}
                 <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E5DC]">

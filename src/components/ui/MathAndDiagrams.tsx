@@ -1,86 +1,683 @@
 import React from "react";
-import { QuestionDiagramType } from "../../types/domain";
+import "katex/contrib/mhchem";
+import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import remarkGfm from "remark-gfm";
+import rehypeKatex from "rehype-katex";
+import { Question, QuestionDiagramType, WorkedExample } from "../../types/domain";
+import {
+  guardInvalidMathInMarkdown,
+  normalizeMathContent,
+  validateLatexExpression,
+} from "../../utils/mathContentContract";
+import { MetaLine } from "./Primitives";
 
-interface MathFormulaProps {
-  expression: string;
-  block?: boolean;
-  className?: string;
+/**
+ * Normalizes mathematical delimiters and legacy expressions using the shared
+ * Vidyakshara Mathematical Content Contract without silently mutating invalid syntax.
+ */
+export function normalizeMathDelimiters(
+  raw: string,
+  expandDisplayBlocks = true
+): string {
+  if (!raw || typeof raw !== "string") return "";
+
+  const upgraded = raw.replace(
+    /∫\[([^\]]+?)\s+to\s+([^\]]+?)\]/g,
+    (_m, lower, upper) => `$\\int_{${lower}}^{${upper}}$`
+  );
+
+  return normalizeMathContent(upgraded, { expandDisplayBlocks });
+}
+
+export interface InvalidMathFallbackProps {
+  raw: string;
+  displayMode?: boolean;
+  errorMessage?: string;
 }
 
 /**
- * Renders mathematical and scientific expressions cleanly with proper
- * typographic subscripts, superscripts, operators, and serif/monospace math tokens.
- * Never exposes raw LaTeX control sequences.
+ * Graceful fallback displayed when a LaTeX expression has invalid syntax.
+ * Never silently invents or alters a formula — retains the exact original notation
+ * for readability and debugging.
  */
-export function MathFormula({
-  expression,
-  block = false,
-  className = "",
-}: MathFormulaProps) {
-  // Clean any accidental raw LaTeX sequences if ever passed
-  const cleaned = expression
-    .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, "($1) / ($2)")
-    .replace(/\\sqrt\{([^}]+)\}/g, "√($1)")
-    .replace(/\\int_\{([^}]+)\}\^\{([^}]+)\}/g, "∫[$1 to $2]")
-    .replace(/\\cdot/g, "·")
-    .replace(/\\times/g, "×")
-    .replace(/\$/g, "");
-
-  // Tokenize sub/superscript patterns like q_enclosed, E°_cell, x^2, ∫[a to b]
-  const parts = cleaned.split(/(\∫\[[^\]]+\]|[A-Za-z0-9°]+_[A-Za-z0-9_]+|[A-Za-z0-9)]+\^[A-Za-z0-9−+-]+)/g);
-
-  const rendered = parts.map((part, idx) => {
-    if (!part) return null;
-
-    if (part.startsWith("∫[")) {
-      const bounds = part.slice(2, -1);
-      const [lower, upper] = bounds.split(" to ");
-      return (
-        <span key={idx} className="inline-flex items-center mx-0.5 font-serif">
-          <span className="text-base leading-none">∫</span>
-          <span className="inline-flex flex-col text-[10px] leading-tight ml-0.5 font-mono">
-            <span>{upper}</span>
-            <span>{lower}</span>
-          </span>
-        </span>
-      );
-    }
-
-    if (part.includes("_")) {
-      const [base, sub] = part.split(/_(.+)/);
-      return (
-        <span key={idx} className="inline-baseline">
-          <span className="font-serif italic">{base}</span>
-          <sub className="text-[0.75em] font-mono not-italic ml-0.2">{sub}</sub>
-        </span>
-      );
-    }
-
-    if (part.includes("^")) {
-      const [base, sup] = part.split(/\^(.+)/);
-      return (
-        <span key={idx} className="inline-baseline">
-          <span>{base}</span>
-          <sup className="text-[0.75em] font-mono ml-0.2">{sup}</sup>
-        </span>
-      );
-    }
-
-    return <span key={idx}>{part}</span>;
-  });
-
-  if (block) {
+export function InvalidMathFallback({
+  raw,
+  displayMode = false,
+  errorMessage,
+}: InvalidMathFallbackProps) {
+  if (!displayMode) {
     return (
-      <div
-        className={`px-4 py-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] font-mono text-xs sm:text-sm text-[#14241B] overflow-x-auto ${className}`}
+      <span
+        className="inline-flex items-baseline gap-1.5 px-1.5 py-0.5 rounded bg-[#FDF6E7] border border-[#F2D08B] text-[#8F4B00] text-xs font-mono"
+        title={
+          errorMessage
+            ? `Unparsed formula syntax (${errorMessage}) — original notation preserved`
+            : "Original formula notation preserved"
+        }
+        data-math-fallback="inline"
+        data-raw-latex={raw}
       >
-        {rendered}
-      </div>
+        <span>{raw}</span>
+      </span>
     );
   }
 
   return (
-    <span className={`font-mono text-[#14241B] ${className}`}>{rendered}</span>
+    <div
+      className="my-2 px-3.5 py-2.5 rounded-lg bg-[#FDF6E7] border border-[#F2D08B] text-xs text-[#14241B] space-y-1"
+      role="note"
+      aria-label="Formula fallback with original notation preserved"
+      data-math-fallback="display"
+      data-raw-latex={raw}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8F4B00] font-semibold">
+        <span>Readable Formula Fallback (Original Notation Preserved)</span>
+        {errorMessage && (
+          <span className="font-normal text-[#6E7B72]">{errorMessage}</span>
+        )}
+      </div>
+      <pre className="font-mono text-xs text-[#14241B] whitespace-pre-wrap break-words bg-white/80 px-2.5 py-1.5 rounded border border-[#E2E5DC] overflow-x-auto">
+        <code>{raw}</code>
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * Converts a standalone formula string (that may not yet have $...$ delimiters)
+ * into a properly delimited LaTeX string for KaTeX rendering.
+ */
+function ensureMathDelimited(expression: string, isDisplay: boolean): string {
+  const trimmed = (expression || "").trim();
+  if (!trimmed) return "";
+
+  const normalized = normalizeMathDelimiters(trimmed, isDisplay);
+
+  // If the string already contains $...$ or $$...$$ delimiters, preserve as-is
+  // so mixed prose + math (e.g., "Relation: $E = mc^2$") is never double-wrapped.
+  if (normalized.includes("$")) {
+    return normalized;
+  }
+
+  // If the string looks like a pure prose sentence with no LaTeX commands or math operators,
+  // return it directly so normal English prose isn't italicized as math variables.
+  const hasLatexCommand = /\\[a-zA-Z]+/.test(normalized);
+  const hasMathOperators = /[=^_{}±×÷⋅·⇌→←↔≥≤≠≈∝∞∫∮∑∏√∆ΔΦθλμπσωαβγϵε]/.test(
+    normalized
+  );
+  const wordCount = normalized.split(/\s+/).length;
+  const looksLikePlainSentence =
+    !hasLatexCommand && !hasMathOperators && wordCount > 5;
+
+  if (looksLikePlainSentence) {
+    return normalized;
+  }
+
+  // Convert common Unicode symbols in legacy pure-formula strings to crisp LaTeX
+  let latexExpr = normalized;
+  if (!hasLatexCommand) {
+    latexExpr = latexExpr
+      .replace(/Φ_([a-zA-Z0-9]+)/g, "\\Phi_{\\text{$1}}")
+      .replace(/q_([a-zA-Z0-9]+)/g, "q_{\\text{$1}}")
+      .replace(/E°_([a-zA-Z0-9]+)/g, "E^\\circ_{\\text{$1}}")
+      .replace(/E_([a-zA-Z0-9]+)/g, "E_{\\text{$1}}")
+      .replace(/H_max/g, "H_{\\max}")
+      .replace(/v_top/g, "v_{\\text{top}}")
+      .replace(/v_x/g, "v_x")
+      .replace(/v_y/g, "v_y")
+      .replace(/ε_0|ε₀/g, "\\varepsilon_0")
+      .replace(/∮/g, "\\oint ")
+      .replace(/∫/g, "\\int ")
+      .replace(/√\(([^)]+)\)/g, "\\sqrt{$1}")
+      .replace(/±/g, "\\pm ")
+      .replace(/×/g, "\\times ")
+      .replace(/·/g, "\\cdot ")
+      .replace(/⇌/g, "\\rightleftharpoons ")
+      .replace(/→/g, "\\rightarrow ")
+      .replace(/≥/g, "\\ge ")
+      .replace(/≤/g, "\\le ")
+      .replace(/≠/g, "\\ne ")
+      .replace(/≈/g, "\\approx ")
+      .replace(/Δ/g, "\\Delta ")
+      .replace(/θ/g, "\\theta ")
+      .replace(/π/g, "\\pi ")
+      .replace(/λ/g, "\\lambda ")
+      .replace(/μ/g, "\\mu ");
+  }
+
+  return isDisplay ? `\n\n$$\n${latexExpr}\n$$\n\n` : `$${latexExpr}$`;
+}
+
+const REHYPE_KATEX_OPTIONS = {
+  throwOnError: false,
+  strict: "ignore",
+  output: "htmlAndMathml",
+  trust: false,
+};
+
+export interface MarkdownContentProps {
+  content: string;
+  inline?: boolean;
+  serif?: boolean;
+  className?: string;
+}
+
+/**
+ * Renders rich educational Markdown (paragraphs, lists, tables, derivations)
+ * with embedded inline ($...$) and display ($$...$$) KaTeX mathematics.
+ *
+ * Security: Raw HTML parsing (rehype-raw) is intentionally NOT enabled,
+ * so untrusted Markdown or AI output can never inject executable scripts or HTML.
+ *
+ * Resilience: Any invalid LaTeX expression is intercepted by guardInvalidMathInMarkdown
+ * and rendered via InvalidMathFallback with the exact original notation preserved.
+ */
+export function MarkdownContent({
+  content,
+  inline = false,
+  serif = false,
+  className = "",
+}: MarkdownContentProps) {
+  if (!content) return null;
+
+  const prepared = normalizeMathDelimiters(content, !inline);
+  const { safeMarkdown, invalidEntries } = guardInvalidMathInMarkdown(prepared);
+  const fontClass = serif ? "font-serif" : "";
+
+  const customComponents = {
+    ...(inline ? { p: ({ children }: { children?: React.ReactNode }) => <>{children}</> } : {}),
+    code: ({
+      children,
+      className: codeClassName,
+    }: {
+      children?: React.ReactNode;
+      className?: string;
+    }) => {
+      const textValue = String(children ?? "").trim();
+      const match = textValue.match(/^@@VIDYA_INVALID_MATH_(\d+)@@$/);
+      if (match) {
+        const entry = invalidEntries[Number(match[1])];
+        if (entry) {
+          return (
+            <InvalidMathFallback
+              raw={entry.raw}
+              displayMode={!inline && entry.displayMode}
+              errorMessage={entry.errorMessage}
+            />
+          );
+        }
+      }
+      return <code className={codeClassName}>{children}</code>;
+    },
+  };
+
+  if (inline) {
+    return (
+      <span className={`vidya-markdown-inline ${fontClass} ${className}`.trim()}>
+        <ReactMarkdown
+          remarkPlugins={[remarkMath, remarkGfm]}
+          rehypePlugins={[[rehypeKatex, REHYPE_KATEX_OPTIONS]]}
+          components={customComponents}
+        >
+          {safeMarkdown}
+        </ReactMarkdown>
+      </span>
+    );
+  }
+
+  return (
+    <div className={`vidya-markdown ${fontClass} ${className}`.trim()}>
+      <ReactMarkdown
+        remarkPlugins={[remarkMath, remarkGfm]}
+        rehypePlugins={[[rehypeKatex, REHYPE_KATEX_OPTIONS]]}
+        components={customComponents}
+      >
+        {safeMarkdown}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+export interface MathRendererProps {
+  expression: string;
+  block?: boolean;
+  display?: boolean;
+  /**
+   * "highlight" (default for block): subtle warm-ivory textbook formula surface.
+   * "plain": unboxed display equation with generous vertical spacing (ideal inside derivations & tables).
+   * "result": forest-tinted textbook conclusion block for final answers.
+   */
+  variant?: "plain" | "highlight" | "result";
+  label?: string;
+  className?: string;
+}
+
+/**
+ * Reusable mathematical expression & mixed-math renderer powered by KaTeX.
+ * Supports both pure LaTeX formulas and prose strings containing $...$ or $$...$$.
+ * Shows a graceful fallback retaining the exact original raw notation if syntax is invalid.
+ */
+export function MathRenderer({
+  expression,
+  block = false,
+  display = false,
+  variant = "highlight",
+  label,
+  className = "",
+}: MathRendererProps) {
+  if (!expression) return null;
+
+  const isDisplay = block || display;
+  const trimmed = expression.trim();
+
+  // Check if the expression is a single formula (rather than multi-segment prose)
+  const dollarMatches = trimmed.match(/(?<![\\$])\$(?!\$)/g) || [];
+  const hasLatexOrMathOps =
+    /\\[a-zA-Z]+/.test(trimmed) ||
+    /[=^_{}±×÷⋅·⇌→←↔≥≤≠≈∝∞∫∮∑∏√∆ΔΦθλμπσωαβγϵε]/.test(trimmed);
+  const isSingleFormulaCandidate =
+    hasLatexOrMathOps &&
+    (!trimmed.includes("$") ||
+      (trimmed.startsWith("$$") &&
+        trimmed.endsWith("$$") &&
+        trimmed.slice(2, -2).indexOf("$$") === -1) ||
+      (trimmed.startsWith("$") &&
+        trimmed.endsWith("$") &&
+        dollarMatches.length === 2) ||
+      dollarMatches.length % 2 === 1);
+
+  if (isSingleFormulaCandidate) {
+    const check = validateLatexExpression(trimmed, isDisplay);
+    if (!check.isValid) {
+      return (
+        <InvalidMathFallback
+          raw={expression}
+          displayMode={isDisplay}
+          errorMessage={check.errorMessage}
+        />
+      );
+    }
+  }
+
+  const prepared = ensureMathDelimited(expression, isDisplay);
+
+  if (isDisplay) {
+    if (variant === "plain") {
+      return (
+        <div
+          className={`vidya-math-surface py-1.5 px-1 text-sm text-[#14241B] overflow-x-auto max-w-full ${className}`.trim()}
+        >
+          {label && (
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6E7B72] mb-1">
+              {label}
+            </div>
+          )}
+          <MarkdownContent content={prepared} />
+        </div>
+      );
+    }
+
+    if (variant === "result") {
+      return (
+        <div
+          className={`vidya-math-surface px-4 py-2.5 rounded-lg bg-[#EAF2EC]/85 border border-[#164A31]/30 text-sm text-[#14241B] overflow-x-auto max-w-full ${className}`.trim()}
+        >
+          {label && (
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#164A31] mb-1">
+              {label}
+            </div>
+          )}
+          <MarkdownContent content={prepared} />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={`vidya-math-surface px-4 py-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] text-sm text-[#14241B] overflow-x-auto max-w-full ${className}`.trim()}
+      >
+        {label && (
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-[#164A31] mb-1">
+            {label}
+          </div>
+        )}
+        <MarkdownContent content={prepared} />
+      </div>
+    );
+  }
+
+  return <MarkdownContent content={prepared} inline className={className} />;
+}
+
+/**
+ * Alias for backward compatibility across existing views.
+ */
+export const MathFormula = MathRenderer;
+
+export interface WorkedSolutionProps {
+  example: WorkedExample;
+}
+
+/**
+ * Digital-textbook Worked Solution component for step-by-step JEE/NEET derivations.
+ * Uses a single clean frame with hairline horizontal rules rather than nesting cards within cards.
+ */
+export function WorkedSolution({ example }: WorkedSolutionProps) {
+  return (
+    <article className="rounded-xl border border-[#E2E5DC] bg-white overflow-hidden divide-y divide-[#E2E5DC]">
+      {/* Textbook Example Header */}
+      <div className="px-5 py-3.5 bg-[#FAF8F3] flex flex-wrap items-center justify-between gap-2">
+        <div className="space-y-0.5">
+          <MetaLine items={["Worked Example", example.examTag]} />
+          <h3 className="text-base sm:text-lg font-semibold text-[#14241B]">
+            {example.title}
+          </h3>
+        </div>
+      </div>
+
+      {/* Problem Statement & Given Variables */}
+      <div className="px-5 py-4 space-y-3 bg-white">
+        <div className="text-[15px] sm:text-base text-[#14241B] font-serif leading-relaxed">
+          <MarkdownContent content={example.problemStatement} serif />
+        </div>
+
+        {example.givenData && example.givenData.length > 0 && (
+          <div className="pt-2.5 border-t border-[#E2E5DC]/80 flex flex-wrap items-baseline gap-x-3 gap-y-1.5 text-xs text-[#48564D]">
+            <span className="font-semibold uppercase tracking-wider text-[11px] text-[#164A31] shrink-0">
+              Given &amp; Variables:
+            </span>
+            {example.givenData.map((datum, dIdx) => (
+              <React.Fragment key={dIdx}>
+                {dIdx > 0 && (
+                  <span className="text-[#6E7B72]" aria-hidden="true">
+                    ·
+                  </span>
+                )}
+                <span className="text-[#14241B]">
+                  <MarkdownContent content={datum} inline />
+                </span>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Numbered Derivation Steps (Hairline-separated, unboxed equations) */}
+      <div className="px-5 py-4 bg-white space-y-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[#6E7B72]">
+          Step-by-Step Solution &amp; Substitution
+        </div>
+        <ol className="divide-y divide-[#E2E5DC]/75">
+          {example.steps.map((st, sIdx) => (
+            <li
+              key={sIdx}
+              className="py-3.5 first:pt-1.5 last:pb-1 space-y-1.5"
+            >
+              <div className="flex items-baseline gap-2.5">
+                <span className="font-mono text-xs font-semibold text-[#164A31] shrink-0">
+                  Step {sIdx + 1}.
+                </span>
+                <div className="text-xs sm:text-sm font-semibold text-[#14241B]">
+                  <MarkdownContent content={st.stepTitle} inline />
+                </div>
+              </div>
+              <div className="text-xs sm:text-sm text-[#48564D] leading-relaxed pl-0 sm:pl-14">
+                <MarkdownContent content={st.detail} />
+              </div>
+              {st.formula && (
+                <div className="pl-0 sm:pl-14 pt-0.5">
+                  <MathRenderer
+                    expression={st.formula}
+                    block
+                    variant="plain"
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* Visually Distinguished Final Answer & Common Mistake Callout */}
+      <div className="px-5 py-4 bg-[#FAF8F3]/70 space-y-3">
+        <div className="px-4 py-3 rounded-lg bg-[#EAF2EC]/90 border border-[#164A31]/30 flex flex-wrap items-center gap-3">
+          <span className="text-xs font-semibold uppercase tracking-wider text-[#164A31] shrink-0">
+            Final Answer
+          </span>
+          <div className="text-sm sm:text-base font-semibold text-[#14241B] overflow-x-auto max-w-full">
+            <MathRenderer expression={example.finalAnswer} />
+          </div>
+        </div>
+
+        <div className="text-xs text-[#48564D] leading-relaxed px-3.5 py-2.5 rounded-lg bg-[#FDF6E7] border border-[#F2D08B]">
+          <strong className="text-[#8F4B00]">Common Mistake to Avoid:</strong>{" "}
+          <MarkdownContent content={example.commonMistakeNote} inline />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export interface QuestionContentProps {
+  question: Pick<
+    Question,
+    "questionText" | "diagramType" | "formulaContext"
+  >;
+  showFormulaLabel?: boolean;
+}
+
+/**
+ * Reusable Question stem, diagram, and reference formula renderer for Practice & Mock Tests.
+ * Ensures generous vertical breathing room between prose, standalone equations, figures, and reference relations.
+ */
+export function QuestionContent({
+  question,
+  showFormulaLabel = true,
+}: QuestionContentProps) {
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      <div className="text-[15.5px] sm:text-[16.5px] font-serif font-medium text-[#14241B] leading-[1.82] max-w-[74ch]">
+        <MarkdownContent content={question.questionText} serif />
+      </div>
+
+      {question.diagramType && (
+        <div className="py-1.5">
+          <QuestionDiagramSvg type={question.diagramType} />
+        </div>
+      )}
+
+      {question.formulaContext && (
+        <div className="pt-0.5">
+          <MathRenderer
+            expression={question.formulaContext}
+            block
+            variant="highlight"
+            label={
+              showFormulaLabel
+                ? "Relevant Concept / Reference Formula"
+                : undefined
+            }
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export interface QuestionWorkedSolutionProps {
+  question: Question;
+}
+
+/**
+ * Natural, textbook-grade Worked Solution renderer for practice and mock-test questions.
+ * Presents Given Information, Relevant Concept/Formula, Substitution & Derivation steps,
+ * a clearly identified Final Answer & Units, and a brief explanation of the Underlying Concept
+ * without forcing conceptual questions into an artificial numerical template.
+ */
+export function QuestionWorkedSolution({
+  question,
+}: QuestionWorkedSolutionProps) {
+  const breakdown = question.solutionBreakdown;
+
+  // Derive steps: prefer structured solutionBreakdown.steps if provided, else map stepByStepExplanation
+  const steps =
+    breakdown?.steps && breakdown.steps.length > 0
+      ? breakdown.steps
+      : question.stepByStepExplanation.map((text, idx, arr) => {
+          // Infer natural semantic labels when not explicitly provided
+          let defaultLabel: string | undefined;
+          if (question.questionType === "numerical") {
+            if (idx === 0) defaultLabel = "Given Information & Setup";
+            else if (idx === 1 && arr.length >= 3)
+              defaultLabel = "Relevant Formula";
+            else if (idx === arr.length - 1)
+              defaultLabel = "Substitution & Calculation";
+          }
+          return {
+            label: defaultLabel,
+            content: text,
+            formula: undefined as string | undefined,
+          };
+        });
+
+  // Derive final answer string with units
+  const derivedFinalAnswer = (() => {
+    if (breakdown?.finalAnswer) return breakdown.finalAnswer;
+    if (question.questionType === "numerical") {
+      const unitSuffix = question.numericalUnit
+        ? `\\text{ ${question.numericalUnit}}`
+        : "";
+      return `$$${question.correctNumericalValue}${unitSuffix}$$`;
+    }
+    if (question.questionType === "multiple-choice") {
+      const ids = question.correctOptionIds || [];
+      return `Correct Options: **${ids.join(", ")}**`;
+    }
+    const correctOpt = (question.options || []).find(
+      (o) => o.id === question.correctOptionId
+    );
+    return correctOpt
+      ? `**Option ${correctOpt.id}** — ${correctOpt.text}`
+      : `**Option ${question.correctOptionId}**`;
+  })();
+
+  const underlyingConcept =
+    breakdown?.underlyingConcept || question.keyConceptTested;
+
+  return (
+    <div
+      className="rounded-xl border border-[#E2E5DC] bg-white overflow-hidden divide-y divide-[#E2E5DC]"
+      data-testid="question-worked-solution"
+    >
+      {/* Solution Header & Given Information */}
+      <div className="px-4 sm:px-5 py-3.5 bg-[#FAF8F3] space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#164A31]">
+            Worked Solution &amp; Concept Breakdown
+          </span>
+          <span className="text-[11px] font-mono text-[#6E7B72]">
+            {question.subjectId.toUpperCase()} · Class {question.classLevel}
+          </span>
+        </div>
+
+        {breakdown?.given && breakdown.given.length > 0 && (
+          <div className="pt-2 border-t border-[#E2E5DC]/80 flex flex-wrap items-baseline gap-x-3 gap-y-1.5 text-xs text-[#48564D]">
+            <span className="font-semibold uppercase tracking-wider text-[11px] text-[#14241B] shrink-0">
+              Given Information:
+            </span>
+            {breakdown.given.map((item, idx) => (
+              <React.Fragment key={idx}>
+                {idx > 0 && (
+                  <span className="text-[#6E7B72]" aria-hidden="true">
+                    ·
+                  </span>
+                )}
+                <span className="text-[#14241B]">
+                  <MarkdownContent content={item} inline />
+                </span>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+
+        {breakdown?.conceptOrFormula && (
+          <div className="pt-2 border-t border-[#E2E5DC]/80 space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#48564D]">
+              Relevant Concept / Formula
+            </div>
+            <MathRenderer
+              expression={breakdown.conceptOrFormula}
+              block
+              variant="plain"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Logical Derivation / Solution Steps */}
+      <div className="px-4 sm:px-5 py-4 bg-white">
+        <ol className="divide-y divide-[#E2E5DC]/75">
+          {steps.map((step, idx) => (
+            <li
+              key={idx}
+              className="py-3 first:pt-0.5 last:pb-0.5 space-y-1.5 text-xs sm:text-sm text-[#14241B]"
+            >
+              <div className="flex items-baseline gap-2.5">
+                <span className="font-mono text-xs font-semibold text-[#164A31] shrink-0">
+                  Step {idx + 1}.
+                </span>
+                {step.label ? (
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#48564D]">
+                    {step.label}
+                  </span>
+                ) : null}
+              </div>
+              <div className="pl-0 sm:pl-14 text-[#14241B] leading-relaxed overflow-x-auto">
+                <MarkdownContent content={step.content} />
+              </div>
+              {step.formula && (
+                <div className="pl-0 sm:pl-14 pt-0.5">
+                  <MathRenderer
+                    expression={step.formula}
+                    block
+                    variant="plain"
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* Final Answer & Units + Underlying Concept & Common Mistake */}
+      <div className="px-4 sm:px-5 py-4 bg-[#FAF8F3]/75 space-y-3">
+        <div className="px-4 py-3 rounded-lg bg-[#EAF2EC]/90 border border-[#164A31]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#164A31] shrink-0">
+            Final Answer &amp; Units
+          </span>
+          <div className="text-sm sm:text-base font-semibold text-[#14241B] overflow-x-auto max-w-full">
+            <MarkdownContent content={derivedFinalAnswer} inline />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs leading-relaxed">
+          <div className="px-3.5 py-2.5 rounded-lg bg-white border border-[#E2E5DC] text-[#48564D]">
+            <strong className="text-[#164A31] uppercase tracking-wider text-[11px] block mb-0.5">
+              Underlying Concept
+            </strong>
+            <MarkdownContent content={underlyingConcept} inline />
+          </div>
+
+          <div className="px-3.5 py-2.5 rounded-lg bg-[#FDF6E7] border border-[#F2D08B] text-[#48564D]">
+            <strong className="text-[#8F4B00] uppercase tracking-wider text-[11px] block mb-0.5">
+              Common Exam Trap to Avoid
+            </strong>
+            <MarkdownContent content={question.commonMistakeSummary} inline />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -97,7 +694,6 @@ export function QuestionDiagramSvg({
         role="img"
         aria-label="Gaussian surface diagram with enclosed charge"
       >
-        {/* Cube / Sphere schematic */}
         <rect
           x="75"
           y="22"
@@ -172,7 +768,6 @@ export function QuestionDiagramSvg({
           stroke="#164A31"
           strokeWidth="2.2"
         />
-        {/* Apex point and horizontal velocity vector */}
         <circle cx="155" cy="52" r="4" fill="#164A31" />
         <line x1="155" y1="52" x2="205" y2="52" stroke="#184E77" strokeWidth="2" />
         <polygon points="205,52 198,48 198,56" fill="#184E77" />
