@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { RotateCcw } from "lucide-react";
 import { InteractiveSimulationSpec } from "../../types/domain";
 import { Button } from "../ui/Primitives";
+import { MarkdownContent } from "../ui/MathAndDiagrams";
 
 interface ConceptSimulatorProps {
   spec: InteractiveSimulationSpec;
@@ -24,13 +25,16 @@ export function ConceptSimulator({ spec }: ConceptSimulatorProps) {
   };
 
   return (
-    <div className="bg-white border border-[#E2E5DC] rounded-xl overflow-hidden">
+    <div
+      id="lesson-interactive-lab"
+      className="bg-white border border-[#E2E5DC] rounded-xl overflow-hidden scroll-mt-24"
+    >
       <div className="px-6 py-4 border-b border-[#E2E5DC] flex flex-wrap items-center justify-between gap-4 bg-[#FAF8F3]">
         <div>
-          <span className="text-xs font-medium text-[#164A31]">
+          <span className="text-xs font-semibold text-[#164A31]">
             Interactive Concept Lab
           </span>
-          <h3 className="text-base font-semibold text-[#14241B] mt-0.5">
+          <h3 className="text-base font-bold text-[#14241B] mt-0.5">
             {spec.title}
           </h3>
         </div>
@@ -41,14 +45,14 @@ export function ConceptSimulator({ spec }: ConceptSimulatorProps) {
           onClick={handleReset}
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          Reset Parameters
+          Reset Values
         </Button>
       </div>
 
       {/* Two-Zone Sandbox Layout: Left/Top Interactive Stage (65%) + Right/Bottom Control & Concept Deck (35%) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch">
         {/* Zone 1: Interactive Stage */}
-        <div className="lg:col-span-8 p-6 bg-[#FAF8F3]/60 border-b lg:border-b-0 lg:border-r border-[#E2E5DC] flex flex-col justify-between">
+        <div className="lg:col-span-8 p-5 sm:p-6 bg-[#FAF8F3]/60 border-b lg:border-b-0 lg:border-r border-[#E2E5DC] flex flex-col justify-between">
           <div className="w-full bg-white border border-[#E2E5DC] rounded-lg p-4 flex items-center justify-center min-h-[260px]">
             {spec.type === "electrostatics-flux" && (
               <GaussianFluxSvg q={primaryVal} r={secondaryVal} />
@@ -63,13 +67,13 @@ export function ConceptSimulator({ spec }: ConceptSimulatorProps) {
               <EquilibriumSvg qVal={primaryVal} temp={secondaryVal} />
             )}
           </div>
-          <p className="text-xs text-[#48564D] mt-3 leading-relaxed">
-            {spec.caption}
-          </p>
+          <div className="text-xs text-[#48564D] mt-3 leading-relaxed">
+            <MarkdownContent content={spec.caption} inline />
+          </div>
         </div>
 
         {/* Zone 2: Control & Concept Deck */}
-        <div className="lg:col-span-4 p-6 flex flex-col justify-between gap-6 bg-white">
+        <div className="lg:col-span-4 p-5 sm:p-6 flex flex-col justify-between gap-6 bg-white">
           <div className="space-y-5">
             <div>
               <div className="flex items-center justify-between text-xs font-medium text-[#14241B] mb-2">
@@ -130,66 +134,108 @@ export function ConceptSimulator({ spec }: ConceptSimulatorProps) {
             )}
           </div>
 
-          {/* Live Readout Box */}
+          {/* Live Readout Box with Shared KaTeX Typesetting */}
           <div className="p-4 rounded-lg bg-[#EBF3F9] border border-[#C5DDF0] space-y-2">
             <div className="text-xs font-semibold text-[#184E77]">
-              Live Physical Readout
+              Live Calculated Values
             </div>
             {spec.type === "electrostatics-flux" && (
-              <div className="space-y-1.5 text-xs text-[#14241B] font-mono tabular-nums">
+              <div className="space-y-1.5 text-xs text-[#14241B] tabular-nums">
                 <div>
-                  Net Flux Φ = {(primaryVal * 112.9).toFixed(1)} × 10³ N·m²/C
+                  <MarkdownContent
+                    content={`Net Flux $\\Phi_{\\text{net}} = ${(primaryVal * 112.9).toFixed(1)} \\times 10^3\\text{ N}\\cdot\\text{m}^2\\text{ C}^{-1}$`}
+                    inline
+                  />
                 </div>
                 <div>
-                  Surface |E| ={" "}
-                  {((Math.abs(primaryVal) * 9.0) / (secondaryVal * secondaryVal)).toFixed(2)}{" "}
-                  × 10³ N/C
+                  <MarkdownContent
+                    content={`Surface Field $|\\vec{E}| = ${(
+                      (Math.abs(primaryVal) * 9.0) /
+                      (secondaryVal * secondaryVal)
+                    ).toFixed(2)} \\times 10^3\\text{ N C}^{-1}$`}
+                    inline
+                  />
                 </div>
-                <div className="font-sans text-[11px] text-[#184E77] pt-1">
-                  {primaryVal === 0
-                    ? "● ZERO NET FLUX (q_in = 0)"
-                    : primaryVal > 0
-                    ? "▲ OUTWARD FLUX (Positive q_in)"
-                    : "▼ INWARD FLUX (Negative q_in)"}
+                <div className="text-[11px] text-[#184E77] pt-1 font-medium">
+                  <MarkdownContent
+                    content={
+                      primaryVal === 0
+                        ? "Zero net flux ($q_{\\text{enclosed}} = 0$)"
+                        : primaryVal > 0
+                        ? "Outward electric flux ($q_{\\text{enclosed}} > 0$)"
+                        : "Inward electric flux ($q_{\\text{enclosed}} < 0$)"
+                    }
+                    inline
+                  />
                 </div>
               </div>
             )}
 
             {spec.type === "bohr-dissociation" && (
-              <div className="space-y-1.5 text-xs text-[#14241B] font-mono tabular-nums">
+              <div className="space-y-1.5 text-xs text-[#14241B] tabular-nums">
                 <div>
-                  Half-Saturation P₅₀ ={" "}
-                  {(26.5 + (7.4 - primaryVal) * 18 + (secondaryVal - 40) * 0.25).toFixed(1)}{" "}
-                  mmHg
+                  <MarkdownContent
+                    content={`Half-Saturation Pressure $P_{50} = ${(
+                      26.5 +
+                      (7.4 - primaryVal) * 18 +
+                      (secondaryVal - 40) * 0.25
+                    ).toFixed(1)}\\text{ mmHg}$`}
+                    inline
+                  />
                 </div>
-                <div className="font-sans text-[11px] text-[#184E77] pt-1">
-                  {primaryVal < 7.35 || secondaryVal > 45
-                    ? "▲ RIGHT SHIFT — Active Tissue Unloading O₂"
-                    : primaryVal > 7.45 || secondaryVal < 35
-                    ? "● LEFT SHIFT — High Lung O₂ Affinity"
-                    : "● NOMINAL RESTING ARTERIAL STATE"}
+                <div className="text-[11px] text-[#184E77] pt-1 font-medium">
+                  <MarkdownContent
+                    content={
+                      primaryVal < 7.35 || secondaryVal > 45
+                        ? "Right shift (Bohr effect): faster $\\ce{O2}$ unloading in active tissues"
+                        : primaryVal > 7.45 || secondaryVal < 35
+                        ? "Left shift: higher $\\ce{O2}$ affinity in pulmonary capillaries"
+                        : "Normal resting arterial state ($\\text{pH } 7.4$, $P_{\\ce{CO2}} = 40\\text{ mmHg}$)"
+                    }
+                    inline
+                  />
                 </div>
               </div>
             )}
 
             {spec.type === "projectile-kinematics" && (
-              <div className="space-y-1.5 text-xs text-[#14241B] font-mono tabular-nums">
+              <div className="space-y-1.5 text-xs text-[#14241B] tabular-nums">
                 {(() => {
                   const rad = (primaryVal * Math.PI) / 180;
                   const g = 9.8;
-                  const range = ((speedSq(secondaryVal) * Math.sin(2 * rad)) / g).toFixed(1);
+                  const range = (
+                    (speedSq(secondaryVal) * Math.sin(2 * rad)) /
+                    g
+                  ).toFixed(1);
                   const hMax = (
                     (speedSq(secondaryVal) * Math.pow(Math.sin(rad), 2)) /
                     (2 * g)
                   ).toFixed(1);
                   return (
                     <>
-                      <div>Horizontal Range R = {range} m</div>
-                      <div>Max Height H_max = {hMax} m</div>
-                      <div className="font-sans text-[11px] text-[#184E77] pt-1">
-                        {primaryVal === 45
-                          ? "● MAXIMUM RANGE ANGLE (θ = 45°)"
-                          : `Complementary same-range angle: ${90 - primaryVal}°`}
+                      <div>
+                        <MarkdownContent
+                          content={`Horizontal Range $R = ${range}\\text{ m}$`}
+                          inline
+                        />
+                      </div>
+                      <div>
+                        <MarkdownContent
+                          content={`Maximum Height $H_{\\max} = ${hMax}\\text{ m}$`}
+                          inline
+                        />
+                      </div>
+                      <div className="text-[11px] text-[#184E77] pt-1 font-medium">
+                        <MarkdownContent
+                          content={
+                            primaryVal === 45
+                              ? "Maximum horizontal range achieved at $\\theta = 45^\\circ$"
+                              : `Complementary angle with identical range: $90^\\circ - ${primaryVal}^\\circ = ${
+                                  90 - primaryVal
+                                }^\\circ$`
+                          }
+                          inline
+                        />
                       </div>
                     </>
                   );
@@ -198,15 +244,24 @@ export function ConceptSimulator({ spec }: ConceptSimulatorProps) {
             )}
 
             {spec.type === "chemical-equilibrium" && (
-              <div className="space-y-1.5 text-xs text-[#14241B] font-mono tabular-nums">
-                <div>Equilibrium Constant Kc = 4.0</div>
-                <div>Current Quotient Q = {primaryVal.toFixed(1)}</div>
-                <div className="font-sans text-[11px] text-[#184E77] pt-1">
-                  {primaryVal < 4
-                    ? "▲ Q < Kc : Forward Shift (Forms Products)"
-                    : primaryVal > 4
-                    ? "▼ Q > Kc : Backward Shift (Forms Reactants)"
-                    : "● Q = Kc : Dynamic Equilibrium Reached"}
+              <div className="space-y-1.5 text-xs text-[#14241B] tabular-nums">
+                <div>
+                  <MarkdownContent
+                    content={`Equilibrium Constant $K_c = 4.0$ · Reaction Quotient $Q_c = ${primaryVal.toFixed(1)}$`}
+                    inline
+                  />
+                </div>
+                <div className="text-[11px] text-[#184E77] pt-1 font-medium">
+                  <MarkdownContent
+                    content={
+                      primaryVal < 4
+                        ? "$Q_c < K_c$: Net forward reaction proceeds to form products"
+                        : primaryVal > 4
+                        ? "$Q_c > K_c$: Net reverse reaction proceeds to form reactants"
+                        : "$Q_c = K_c$: System is in dynamic chemical equilibrium"
+                    }
+                    inline
+                  />
                 </div>
               </div>
             )}

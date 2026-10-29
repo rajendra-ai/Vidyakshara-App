@@ -1,13 +1,12 @@
 import React from "react";
-import "katex/contrib/mhchem";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
-import rehypeKatex from "rehype-katex";
 import { Question, QuestionDiagramType, WorkedExample } from "../../types/domain";
 import {
   guardInvalidMathInMarkdown,
   normalizeMathContent,
+  renderLatexToString,
   validateLatexExpression,
 } from "../../utils/mathContentContract";
 import { MetaLine } from "./Primitives";
@@ -149,10 +148,10 @@ function ensureMathDelimited(expression: string, isDisplay: boolean): string {
   return isDisplay ? `\n\n$$\n${latexExpr}\n$$\n\n` : `$${latexExpr}$`;
 }
 
-const REHYPE_KATEX_OPTIONS = {
+const KATEX_RENDER_OPTIONS = {
   throwOnError: false,
-  strict: "ignore",
-  output: "htmlAndMathml",
+  strict: "ignore" as const,
+  output: "htmlAndMathml" as const,
   trust: false,
 };
 
@@ -187,6 +186,32 @@ export function MarkdownContent({
 
   const customComponents = {
     ...(inline ? { p: ({ children }: { children?: React.ReactNode }) => <>{children}</> } : {}),
+    pre: ({
+      node,
+      children,
+    }: {
+      node?: {
+        children?: Array<{
+          type?: string;
+          tagName?: string;
+          properties?: { className?: unknown };
+        }>;
+      };
+      children?: React.ReactNode;
+    }) => {
+      const firstChild = node?.children?.[0];
+      const childClasses = Array.isArray(firstChild?.properties?.className)
+        ? firstChild.properties.className
+        : [];
+      if (
+        firstChild?.type === "element" &&
+        firstChild.tagName === "code" &&
+        childClasses.includes("language-math")
+      ) {
+        return <>{children}</>;
+      }
+      return <pre>{children}</pre>;
+    },
     code: ({
       children,
       className: codeClassName,
@@ -194,7 +219,8 @@ export function MarkdownContent({
       children?: React.ReactNode;
       className?: string;
     }) => {
-      const textValue = String(children ?? "").trim();
+      const rawText = String(children ?? "");
+      const textValue = rawText.trim();
       const match = textValue.match(/^@@VIDYA_INVALID_MATH_(\d+)@@$/);
       if (match) {
         const entry = invalidEntries[Number(match[1])];
@@ -208,6 +234,35 @@ export function MarkdownContent({
           );
         }
       }
+
+      if (codeClassName && codeClassName.includes("language-math")) {
+        const isDisplayMath =
+          !inline && codeClassName.includes("math-display");
+        const latexSource = rawText.replace(/\n$/, "");
+        const check = validateLatexExpression(latexSource, isDisplayMath);
+        if (!check.isValid) {
+          return (
+            <InvalidMathFallback
+              raw={latexSource}
+              displayMode={isDisplayMath}
+              errorMessage={check.errorMessage}
+            />
+          );
+        }
+
+        const renderedHtml = renderLatexToString(latexSource, {
+          ...KATEX_RENDER_OPTIONS,
+          displayMode: isDisplayMath,
+        });
+
+        return (
+          <span
+            className={isDisplayMath ? "vidya-katex-block block" : "vidya-katex-inline"}
+            dangerouslySetInnerHTML={{ __html: renderedHtml }}
+          />
+        );
+      }
+
       return <code className={codeClassName}>{children}</code>;
     },
   };
@@ -217,7 +272,6 @@ export function MarkdownContent({
       <span className={`vidya-markdown-inline ${fontClass} ${className}`.trim()}>
         <ReactMarkdown
           remarkPlugins={[remarkMath, remarkGfm]}
-          rehypePlugins={[[rehypeKatex, REHYPE_KATEX_OPTIONS]]}
           components={customComponents}
         >
           {safeMarkdown}
@@ -230,7 +284,6 @@ export function MarkdownContent({
     <div className={`vidya-markdown ${fontClass} ${className}`.trim()}>
       <ReactMarkdown
         remarkPlugins={[remarkMath, remarkGfm]}
-        rehypePlugins={[[rehypeKatex, REHYPE_KATEX_OPTIONS]]}
         components={customComponents}
       >
         {safeMarkdown}

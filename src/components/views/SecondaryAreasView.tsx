@@ -936,8 +936,8 @@ export function ProgressView({ state, onNavigate }: ProgressViewProps) {
             <MetaLine
               items={[
                 profile.isDemoAccount
-                  ? "Demonstration Data (Sample Student: Aarav Sharma)"
-                  : "Personal Stored Activity",
+                  ? "Sample Student Profile (Aarav Sharma)"
+                  : "Personal Study Profile",
                 `Class ${profile.classLevel}`,
                 profile.targetExam,
               ]}
@@ -946,11 +946,7 @@ export function ProgressView({ state, onNavigate }: ProgressViewProps) {
               Your learning progress, stronger areas, and topics to revise next
             </h1>
             <p className="text-xs text-[#6E7B72]">
-              Every metric below is calculated directly from{" "}
-              {profile.isDemoAccount
-                ? "clearly labelled sample demonstration activity"
-                : "your actual saved study sessions"}
-              . Vidyakshara never makes unsupported predictions about exam ranks or admission chances.
+              Every metric below is calculated directly from your completed concept lessons, question attempts, and revision sessions.
             </p>
           </div>
           <Button
@@ -1157,7 +1153,7 @@ export function ProgressView({ state, onNavigate }: ProgressViewProps) {
               No practice history recorded yet
             </div>
             <p className="text-xs text-[#6E7B72] max-w-md mx-auto">
-              We do not display placeholder charts when your history is empty. Answer your first few questions in Practice to see your real accuracy over time here.
+              Answer your first few questions in Practice to see your session-by-session accuracy trend here.
             </p>
           </div>
         ) : (

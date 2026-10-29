@@ -204,4 +204,17 @@ td .katex {
   }
 }
 
+@media print {
+  html, body {
+    background-color: #FFFFFF !important;
+    color: #14241B !important;
+  }
+
+  #career-guidance-report section {
+    break-inside: avoid-page;
+    box-shadow: none !important;
+  }
+}
+
+
 

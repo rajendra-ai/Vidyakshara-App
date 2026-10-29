@@ -7,11 +7,15 @@ import {
   Calendar,
   CheckCircle2,
   Circle,
+  Compass,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
   SkipForward,
   SlidersHorizontal,
+  Sparkles,
+  Target,
   Trash2,
 } from "lucide-react";
 import {
@@ -23,10 +27,12 @@ import {
 } from "../../types/domain";
 import { QUESTIONS, SUBJECTS, TOPICS } from "../../data/curriculum";
 import {
+  computeSubjectInsights,
   computeTopicInsights,
   getPersonalisedNextRecommendation,
 } from "../../utils/personalisation";
 import { Button, MetaLine, ProgressBar } from "../ui/Primitives";
+import { MarkdownContent } from "../ui/MathAndDiagrams";
 import { SubjectIllustration } from "../ui/SubjectIllustration";
 
 interface HomeViewProps {
@@ -108,10 +114,9 @@ export function HomeView({
     totalAttempts > 0 ? Math.round((correctAttempts / totalAttempts) * 100) : null;
 
   const topicInsights = computeTopicInsights(state);
+  const subjectInsights = computeSubjectInsights(state);
   const unresolvedMistakeQuestionIds = Array.from(
-    new Set(
-      topicInsights.flatMap((ti) => ti.unresolvedMistakeQuestionIds)
-    )
+    new Set(topicInsights.flatMap((ti) => ti.unresolvedMistakeQuestionIds))
   );
 
   const hasLearningHistory =
@@ -119,12 +124,18 @@ export function HomeView({
     totalAttempts > 0 ||
     state.mockResults.length > 0;
 
-  // Evidence-based personalised recommendation (respecting optional student override)
+  // Personalised next study recommendation
   const recommendation = getPersonalisedNextRecommendation(
     state,
     overrideTopicId || undefined
   );
   const activeOrNextTopic = recommendation.topic;
+
+  // Last active topic or practice session for instant resume
+  const lastStudiedTopic = profile.lastActiveTopicId
+    ? TOPICS.find((t) => t.id === profile.lastActiveTopicId)
+    : undefined;
+  const savedPracticeSession = state.activePracticeSession;
 
   const activeTasks = state.studyTasks.filter((t) => !t.skipped);
   const skippedTasks = state.studyTasks.filter((t) => t.skipped);
@@ -135,32 +146,6 @@ export function HomeView({
   );
 
   const milestones = state.studentMilestones || [];
-
-  // Actual activity-based milestones (never fabricated)
-  const actualMilestones = [
-    {
-      id: "m-onboarding",
-      label: `Study plan configured for Class ${profile.classLevel} ${profile.targetExam}`,
-      achieved: true,
-    },
-    {
-      id: "m-first-concept",
-      label: "Complete your first interactive concept & worked example",
-      achieved: completedTopicsCount >= 1,
-    },
-    {
-      id: "m-practice",
-      label: "Solve at least 3 exam-style questions in Practice",
-      achieved: totalAttempts >= 3,
-    },
-    {
-      id: "m-mock",
-      label: "Complete a 15-minute timed checkpoint mock test",
-      achieved: state.mockResults.length >= 1,
-    },
-  ];
-
-  const achievedMilestoneCount = actualMilestones.filter((m) => m.achieved).length;
 
   const handleCreateCustomTask = (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,7 +159,7 @@ export function HomeView({
 
     onAddCustomTask({
       title: newTaskTitle.trim(),
-      subtitle: `${newTaskSubject.toUpperCase()} · Student-added task`,
+      subtitle: `${newTaskSubject.toUpperCase()} · Custom study task`,
       type: newTaskType,
       subjectId: newTaskSubject,
       estimatedMinutes: newTaskMinutes,
@@ -199,56 +184,61 @@ export function HomeView({
   };
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10">
       {/* =====================================================================
-          ABOVE THE FOLD: WARM WELCOME, PERSONALISD NEXT ACTION, & MANAGEABLE DAILY PLANNER
+          1. FOCUSED STUDY COMMAND HEADER:
+             Answers: What have I completed? How can I resume? What should I study next?
          ===================================================================== */}
-      <section className="bg-white border border-[#E2E5DC] rounded-xl p-5 sm:p-8 space-y-8">
-        {/* Top Row: Welcome + Concise Real Progress */}
+      <section className="bg-white border border-[#E2E5DC] rounded-xl p-5 sm:p-8 space-y-6">
+        {/* Welcome + Completed Progress Summary Row */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-[#E2E5DC]">
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <MetaLine
               items={[
                 `Class ${profile.classLevel}`,
                 profile.targetExam,
                 `${profile.preferences.dailyStudyMinutes} mins/day goal`,
-                profile.isDemoAccount
-                  ? "Sample Student Workspace"
-                  : "Personal Study Companion",
               ]}
             />
             <h1 className="text-2xl sm:text-3xl font-bold text-[#14241B]">
               {hasLearningHistory
-                ? `Welcome back, ${profile.name.split(" ")[0]}. Ready to continue?`
-                : `Welcome, ${profile.name.split(" ")[0]}. Let's start your first study session.`}
+                ? `Welcome back, ${profile.name.split(" ")[0]}.`
+                : `Welcome, ${profile.name.split(" ")[0]}. Let's start your first session.`}
             </h1>
             <p className="text-sm sm:text-base text-[#48564D] max-w-2xl leading-relaxed">
               {hasLearningHistory
                 ? `You have completed ${completedTopicsCount} of ${totalTopicsCount} core topics and solved ${totalAttempts} practice question${
                     totalAttempts === 1 ? "" : "s"
-                  }. Your next recommended action is tailored from your actual activity.`
-                : `Your study plan for Class ${profile.classLevel} ${profile.targetExam} is ready. Start with the recommended concept below or choose any topic you prefer.`}
+                  }. Pick up where you left off or follow today's study plan.`
+                : `Your Class ${profile.classLevel} ${profile.targetExam} workspace is ready. Start with the recommended concept below or choose any chapter you want to study.`}
             </p>
           </div>
 
-          {/* Concise Real Progress Strip */}
-          <div className="flex items-center gap-5 px-5 py-4 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] shrink-0">
+          {/* What Have I Completed? — Clear 4-Metric Progress Strip */}
+          <div
+            aria-label="Your completed study summary"
+            className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-5 px-5 py-4 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] shrink-0"
+          >
             <div>
               <div className="text-xs text-[#6E7B72]">Topics Done</div>
               <div className="text-lg font-mono font-bold tabular-nums text-[#14241B] mt-0.5">
                 {completedTopicsCount}/{totalTopicsCount}
               </div>
             </div>
-            <div className="h-8 w-px bg-[#E2E5DC]" />
-            <div>
-              <div className="text-xs text-[#6E7B72]">Accuracy</div>
-              <div className="text-lg font-mono font-bold tabular-nums text-[#164A31] mt-0.5">
-                {accuracyPct !== null ? `${accuracyPct}%` : "New"}
+            <div className="sm:border-l sm:border-[#E2E5DC] sm:pl-4">
+              <div className="text-xs text-[#6E7B72]">Questions Solved</div>
+              <div className="text-lg font-mono font-bold tabular-nums text-[#14241B] mt-0.5">
+                {totalAttempts}
               </div>
             </div>
-            <div className="h-8 w-px bg-[#E2E5DC]" />
-            <div>
-              <div className="text-xs text-[#6E7B72]">Daily Plan</div>
+            <div className="sm:border-l sm:border-[#E2E5DC] sm:pl-4">
+              <div className="text-xs text-[#6E7B72]">Accuracy</div>
+              <div className="text-lg font-mono font-bold tabular-nums text-[#164A31] mt-0.5">
+                {accuracyPct !== null ? `${accuracyPct}%` : "—"}
+              </div>
+            </div>
+            <div className="sm:border-l sm:border-[#E2E5DC] sm:pl-4">
+              <div className="text-xs text-[#6E7B72]">Today&apos;s Plan</div>
               <div className="text-lg font-mono font-bold tabular-nums text-[#14241B] mt-0.5">
                 {completedTasksCount}/{activeTasks.length}
               </div>
@@ -256,14 +246,80 @@ export function HomeView({
           </div>
         </div>
 
-        {/* Main Above-the-Fold Split: Evidence-Based Recommendation (Left 6 Cols) + Daily Study Planner (Right 6 Cols) */}
+        {/* How Can I Resume? — Instant Resume Strip (shown whenever recent activity exists) */}
+        {(lastStudiedTopic || savedPracticeSession || unresolvedMistakeQuestionIds.length > 0) && (
+          <div className="p-4 rounded-xl bg-[#EAF2EC]/70 border border-[#164A31]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <div className="text-xs font-semibold text-[#164A31]">
+                Quick Resume — Pick up right where you left off
+              </div>
+              <p className="text-xs sm:text-sm text-[#14241B]">
+                {lastStudiedTopic ? (
+                  <>
+                    Last studied concept:{" "}
+                    <strong>{lastStudiedTopic.title}</strong> (
+                    {lastStudiedTopic.subjectId.toUpperCase()})
+                  </>
+                ) : (
+                  <>
+                    Continue your active {profile.targetExam} practice or mistake
+                    review session
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {lastStudiedTopic && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    onNavigate("learn", {
+                      subjectId: lastStudiedTopic.subjectId,
+                      topicId: lastStudiedTopic.id,
+                    })
+                  }
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  Resume Lesson
+                </Button>
+              )}
+              {savedPracticeSession && savedPracticeSession.questionIds.length > 0 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onNavigate("practice")}
+                >
+                  <Target className="w-3.5 h-3.5" />
+                  Resume Practice (Q{savedPracticeSession.currentQuestionIndex + 1})
+                </Button>
+              )}
+              {unresolvedMistakeQuestionIds.length > 0 && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => onNavigate("revision")}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Review {unresolvedMistakeQuestionIds.length} Mistake
+                  {unresolvedMistakeQuestionIds.length === 1 ? "" : "s"}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Main Split: 1. What Should I Study Next? (Left 6 Cols) + 2. Today's Study Planner (Right 6 Cols) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-          {/* Dominant Focal Anchor: Evidence-Based Recommendation with Student Override */}
+          {/* LEFT 6 COLS: What Should I Study Next? */}
           <div className="lg:col-span-6 p-6 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] flex flex-col justify-between space-y-6">
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-[#164A31]">
-                  {recommendation.badgeLabel}
+                  What to Study Next · {recommendation.badgeLabel}
                 </span>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-mono tabular-nums text-[#6E7B72]">
@@ -275,19 +331,19 @@ export function HomeView({
                     className="inline-flex items-center gap-1 text-xs font-medium text-[#184E77] hover:underline cursor-pointer"
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5" />
-                    {showOverridePicker ? "Close selector" : "Choose another topic"}
+                    {showOverridePicker ? "Close" : "Change topic"}
                   </button>
                 </div>
               </div>
 
-              {/* Optional Student Override Selector */}
+              {/* Optional Topic Override Selector */}
               {showOverridePicker && (
                 <div className="p-3.5 rounded-lg bg-white border border-[#E2E5DC] space-y-2">
                   <label
                     htmlFor="override-topic-select"
                     className="block text-xs font-semibold text-[#14241B]"
                   >
-                    Override recommendation — choose what you want to study now:
+                    Choose any syllabus topic to focus on now:
                   </label>
                   <div className="flex flex-wrap items-center gap-2">
                     <select
@@ -297,7 +353,7 @@ export function HomeView({
                       className="flex-1 px-3 py-1.5 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] text-xs text-[#14241B]"
                     >
                       <option value="">
-                        Automatic (Recommended from your activity)
+                        Recommended from your study activity
                       </option>
                       {applicableTopics.map((t) => (
                         <option key={t.id} value={t.id}>
@@ -312,7 +368,7 @@ export function HomeView({
                         size="sm"
                         onClick={() => setOverrideTopicId("")}
                       >
-                        Reset to Auto
+                        Reset
                       </Button>
                     )}
                   </div>
@@ -321,7 +377,7 @@ export function HomeView({
 
               <SubjectIllustration
                 subjectId={activeOrNextTopic.subjectId}
-                className="w-full h-32"
+                className="w-full h-28"
               />
 
               <div className="space-y-2">
@@ -329,12 +385,26 @@ export function HomeView({
                   {recommendation.title}
                 </h2>
                 <p className="text-xs sm:text-sm text-[#48564D] leading-relaxed">
-                  {activeOrNextTopic.summary}
-                </p>
-                <div className="p-3 rounded-lg bg-white border border-[#E2E5DC] text-xs text-[#14241B] leading-relaxed">
-                  <strong className="text-[#164A31]">Why this next step: </strong>
                   {recommendation.reason}
+                </p>
+              </div>
+
+              {/* Key Concept Takeaways Preview (Rendered with Shared KaTeX Engine) */}
+              <div className="p-4 rounded-lg bg-white border border-[#E2E5DC] space-y-2">
+                <div className="text-xs font-semibold text-[#164A31]">
+                  Key formulas &amp; takeaways in this lesson:
                 </div>
+                {activeOrNextTopic.keyTakeaways.slice(0, 2).map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-start gap-2 text-xs text-[#14241B] leading-relaxed"
+                  >
+                    <span className="font-mono font-semibold text-[#164A31] mt-0.5">
+                      0{idx + 1}.
+                    </span>
+                    <MarkdownContent content={item} inline />
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -371,35 +441,35 @@ export function HomeView({
             </div>
           </div>
 
-          {/* Manageable Daily Study Planner (Complete, Skip, Rearrange, Custom Tasks & Milestones) */}
+          {/* RIGHT 6 COLS: Manageable Today's Study Planner */}
           <div className="lg:col-span-6 flex flex-col justify-between space-y-5">
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h2 className="text-lg font-semibold text-[#14241B]">
-                    Today&apos;s study planner
+                  <h2 className="text-lg font-bold text-[#14241B]">
+                    Today&apos;s study plan
                   </h2>
                   <p className="text-xs text-[#6E7B72]">
-                    Sized for your {profile.preferences.dailyStudyMinutes} min/day preference ({totalPlannedMinutes} mins active)
+                    {totalPlannedMinutes} mins planned for your {profile.preferences.dailyStudyMinutes} min/day goal
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setShowAddTaskForm((v) => !v)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-xs font-medium text-[#14241B] cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-xs font-medium text-[#14241B] cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5 text-[#164A31]" />
-                    Add Task
+                    {showAddTaskForm ? "Close" : "Add Task"}
                   </button>
                   <button
                     type="button"
                     onClick={onRegenerateDailyPlan}
-                    title="Refresh plan based on latest mistakes, unfinished topics, and time goal"
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-xs font-medium text-[#14241B] cursor-pointer"
+                    title="Refresh daily tasks from your latest progress"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-xs font-medium text-[#14241B] cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-[#164A31]" />
-                    Refresh Plan
+                    Refresh
                   </button>
                 </div>
               </div>
@@ -407,7 +477,7 @@ export function HomeView({
               <ProgressBar
                 value={completedTasksCount}
                 max={Math.max(1, activeTasks.length)}
-                valueLabel={`${completedTasksCount}/${activeTasks.length} completed`}
+                valueLabel={`${completedTasksCount} of ${activeTasks.length} tasks done`}
                 tone="forest"
               />
             </div>
@@ -419,7 +489,7 @@ export function HomeView({
                 className="p-4 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-3"
               >
                 <div className="text-xs font-semibold text-[#14241B]">
-                  Add your own study task to today&apos;s plan
+                  Add a study task to today&apos;s checklist
                 </div>
                 <input
                   type="text"
@@ -454,9 +524,9 @@ export function HomeView({
                     }
                     className="px-2.5 py-1.5 text-xs bg-white border border-[#E2E5DC] rounded-lg text-[#14241B]"
                   >
-                    <option value="concept">Concept Study</option>
-                    <option value="practice">Question Practice</option>
-                    <option value="revision">Revision</option>
+                    <option value="concept">Learn Concept</option>
+                    <option value="practice">Solve Questions</option>
+                    <option value="revision">Revise Mistakes</option>
                   </select>
                   <select
                     aria-label="Estimated task duration"
@@ -484,31 +554,31 @@ export function HomeView({
                     size="sm"
                     disabled={!newTaskTitle.trim()}
                   >
-                    Add to Today
+                    Add to Plan
                   </Button>
                 </div>
               </form>
             )}
 
-            {/* Active Tasks List with Complete, Rearrange (Up/Down), Skip, and Open */}
+            {/* Active Tasks Checklist */}
             <div className="divide-y divide-[#E2E5DC] border-t border-b border-[#E2E5DC]">
               {activeTasks.length === 0 ? (
                 <div className="py-6 text-center text-xs text-[#6E7B72] space-y-2">
-                  <p>All tasks for today are either completed or skipped.</p>
+                  <p>You&apos;ve completed or skipped all tasks for today.</p>
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
                     onClick={onRegenerateDailyPlan}
                   >
-                    Generate Fresh Daily Tasks
+                    Generate New Tasks
                   </Button>
                 </div>
               ) : (
                 activeTasks.map((task, idx) => (
                   <div
                     key={task.id}
-                    className="py-3 flex items-center justify-between gap-2"
+                    className="py-3.5 flex items-center justify-between gap-3"
                   >
                     <div className="flex items-start gap-2.5 min-w-0">
                       <button
@@ -547,15 +617,15 @@ export function HomeView({
                       </div>
                     </div>
 
-                    {/* Task Controls: Rearrange Up/Down, Skip, Open */}
+                    {/* Task Controls: Move Up/Down, Skip, Start */}
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         disabled={idx === 0}
                         onClick={() => onMoveTask(task.id, "up")}
-                        title="Move task earlier"
+                        title="Move earlier"
                         aria-label="Move task up"
-                        className="p-2 min-w-[34px] min-h-[34px] flex items-center justify-center rounded-md text-[#6E7B72] hover:text-[#14241B] hover:bg-[#FAF8F3] disabled:opacity-30 cursor-pointer"
+                        className="p-1.5 min-w-[30px] min-h-[30px] flex items-center justify-center rounded-md text-[#6E7B72] hover:text-[#14241B] hover:bg-[#FAF8F3] disabled:opacity-30 cursor-pointer"
                       >
                         <ArrowUp className="w-3.5 h-3.5" />
                       </button>
@@ -563,24 +633,24 @@ export function HomeView({
                         type="button"
                         disabled={idx === activeTasks.length - 1}
                         onClick={() => onMoveTask(task.id, "down")}
-                        title="Move task later"
+                        title="Move later"
                         aria-label="Move task down"
-                        className="p-2 min-w-[34px] min-h-[34px] flex items-center justify-center rounded-md text-[#6E7B72] hover:text-[#14241B] hover:bg-[#FAF8F3] disabled:opacity-30 cursor-pointer"
+                        className="p-1.5 min-w-[30px] min-h-[30px] flex items-center justify-center rounded-md text-[#6E7B72] hover:text-[#14241B] hover:bg-[#FAF8F3] disabled:opacity-30 cursor-pointer"
                       >
                         <ArrowDown className="w-3.5 h-3.5" />
                       </button>
                       <button
                         type="button"
                         onClick={() => onToggleTaskSkipped(task.id)}
-                        title="Skip task for today"
+                        title="Skip for today"
                         aria-label="Skip task for today"
-                        className="p-2 min-w-[34px] min-h-[34px] flex items-center justify-center rounded-md text-[#6E7B72] hover:text-[#B45309] hover:bg-[#FFFBEB] cursor-pointer"
+                        className="p-1.5 min-w-[30px] min-h-[30px] flex items-center justify-center rounded-md text-[#6E7B72] hover:text-[#B45309] hover:bg-[#FFFBEB] cursor-pointer"
                       >
                         <SkipForward className="w-3.5 h-3.5" />
                       </button>
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
                         onClick={() =>
                           onNavigate(task.routeTarget, {
@@ -590,7 +660,7 @@ export function HomeView({
                           })
                         }
                       >
-                        Open →
+                        Start →
                       </Button>
                     </div>
                   </div>
@@ -598,39 +668,30 @@ export function HomeView({
               )}
             </div>
 
-            {/* Skipped Tasks Drawer if any */}
+            {/* Skipped Tasks Restore Row */}
             {skippedTasks.length > 0 && (
-              <div className="p-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-2">
-                <div className="text-[11px] font-semibold text-[#6E7B72]">
-                  Skipped for today ({skippedTasks.length})
-                </div>
-                <div className="space-y-1.5">
-                  {skippedTasks.map((st) => (
-                    <div
-                      key={st.id}
-                      className="flex items-center justify-between gap-2 text-xs text-[#6E7B72]"
-                    >
-                      <span className="truncate">{st.title}</span>
-                      <button
-                        type="button"
-                        onClick={() => onToggleTaskSkipped(st.id)}
-                        className="text-[#164A31] font-medium hover:underline shrink-0 cursor-pointer"
-                      >
-                        Restore
-                      </button>
-                    </div>
-                  ))}
-                </div>
+              <div className="px-3.5 py-2.5 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] flex flex-wrap items-center justify-between gap-2 text-xs text-[#6E7B72]">
+                <span>
+                  {skippedTasks.length} task{skippedTasks.length > 1 ? "s" : ""}{" "}
+                  skipped for today
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onToggleTaskSkipped(skippedTasks[0].id)}
+                  className="text-[#164A31] font-semibold hover:underline cursor-pointer"
+                >
+                  Restore {skippedTasks[0].title}
+                </button>
               </div>
             )}
 
-            {/* Student-Entered Upcoming Milestones (Never assumes external schedule) */}
+            {/* Compact Upcoming Test Dates / Milestones Bar */}
             <div className="p-4 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-[#164A31]" />
                   <span className="text-xs font-semibold text-[#14241B]">
-                    Your Upcoming Study Milestones
+                    Upcoming Test Dates &amp; Personal Targets
                   </span>
                 </div>
                 <button
@@ -638,7 +699,7 @@ export function HomeView({
                   onClick={() => setShowMilestoneForm((v) => !v)}
                   className="text-xs font-semibold text-[#164A31] hover:underline cursor-pointer"
                 >
-                  {showMilestoneForm ? "Close" : "+ Add Milestone"}
+                  {showMilestoneForm ? "Close" : "+ Add Target Date"}
                 </button>
               </div>
 
@@ -686,7 +747,7 @@ export function HomeView({
                       size="sm"
                       disabled={!milestoneTitle.trim() || !milestoneDate.trim()}
                     >
-                      Save Milestone
+                      Save Target
                     </Button>
                   </div>
                 </form>
@@ -694,10 +755,10 @@ export function HomeView({
 
               {milestones.length === 0 ? (
                 <p className="text-[11px] text-[#6E7B72] leading-relaxed">
-                  Add a personal test date or chapter target above so your daily plan can prioritise that subject. Vidyakshara only plans around milestones you enter.
+                  Have an upcoming school test or coaching quiz? Add it here so today&apos;s study plan prioritises that subject.
                 </p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {milestones.map((ms) => (
                     <div
                       key={ms.id}
@@ -732,7 +793,7 @@ export function HomeView({
                         <button
                           type="button"
                           onClick={() => onDeleteMilestone(ms.id)}
-                          aria-label="Delete milestone"
+                          aria-label="Delete target date"
                           className="text-[#6E7B72] hover:text-[#9B1C1C] cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -748,91 +809,24 @@ export function HomeView({
       </section>
 
       {/* =====================================================================
-          BELOW THE FOLD 1: CONTINUE WHERE YOU LEFT OFF & MISTAKE / REVISION LOOP
+          2. YOUR 4-STEP LEARNING LOOP: MISTAKE RECOVERY & AI TUTOR SUPPORT
          ===================================================================== */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-        {/* Left 7 Cols: Continue Where You Left Off */}
+        {/* Left 7 Cols: Mistake Recovery & Revision Queue */}
         <div className="lg:col-span-7 bg-white border border-[#E2E5DC] rounded-xl p-6 flex flex-col justify-between space-y-5">
           <div className="space-y-1.5">
-            <MetaLine
-              items={[
-                hasLearningHistory
-                  ? "Continue Where You Left Off"
-                  : "Up Next in Your Syllabus",
-                recommendation.subjectName,
-              ]}
-            />
-            <h2 className="text-xl font-bold text-[#14241B]">
-              {activeOrNextTopic.title} — Key Takeaways
-            </h2>
-          </div>
-
-          <div className="p-4 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] space-y-2.5">
-            {activeOrNextTopic.keyTakeaways.map((item, idx) => (
-              <div
-                key={idx}
-                className="flex items-start gap-2.5 text-xs sm:text-sm text-[#14241B] leading-relaxed"
-              >
-                <span className="font-mono text-xs font-semibold text-[#164A31] mt-0.5">
-                  0{idx + 1}.
-                </span>
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-            <span className="text-xs text-[#6E7B72]">
-              Includes interactive concept simulator + step-by-step worked example
-            </span>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  onNavigate("doubts", {
-                    subjectId: activeOrNextTopic.subjectId,
-                    topicId: activeOrNextTopic.id,
-                    prefillDoubt: `Can you explain the main exam shortcut for ${activeOrNextTopic.title}?`,
-                  })
-                }
-              >
-                Ask AI Tutor
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={() =>
-                  onNavigate("learn", {
-                    subjectId: activeOrNextTopic.subjectId,
-                    topicId: activeOrNextTopic.id,
-                  })
-                }
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                Open Concept Lesson
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right 5 Cols: Review Mistakes & Spaced Revision Status */}
-        <div className="lg:col-span-5 bg-white border border-[#E2E5DC] rounded-xl p-6 flex flex-col justify-between space-y-5">
-          <div className="space-y-1.5">
-            <MetaLine items={["Smart Revision & Mistake Recovery"]} />
+            <MetaLine items={["Step 3 & 4 of Learning Loop", "Mistake Review & Spaced Revision"]} />
             <h2 className="text-xl font-bold text-[#14241B]">
               {unresolvedMistakeQuestionIds.length > 0
-                ? `${unresolvedMistakeQuestionIds.length} unresolved mistake${
+                ? `${unresolvedMistakeQuestionIds.length} practice mistake${
                     unresolvedMistakeQuestionIds.length > 1 ? "s" : ""
-                  } ready to review`
-                : "No unresolved mistakes pending"}
+                  } ready to resolve`
+                : "Your mistake log is clear"}
             </h2>
             <p className="text-xs sm:text-sm text-[#48564D] leading-relaxed">
               {unresolvedMistakeQuestionIds.length > 0
-                ? "When you miss a question, Vidyakshara recommends reviewing the underlying concept and re-attempting the question in a Revision Session."
-                : "Any wrong attempt or bookmarked topic is automatically added to your Revision Queue so you can review it before your next mock test."}
+                ? "Review the exact questions you missed below, revisit the underlying formula, and re-attempt them in a guided Revision Session."
+                : "Whenever you miss a question in Practice or Mock Tests, it is saved here automatically so you can fix the misconception before your exam."}
             </p>
           </div>
 
@@ -844,23 +838,44 @@ export function HomeView({
                 return (
                   <div
                     key={qid}
-                    className="p-3.5 rounded-lg bg-[#FFFBEB] border border-[#D97706]/30 space-y-1"
+                    className="p-4 rounded-xl bg-[#FFFBEB] border border-[#D97706]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
-                    <MetaLine items={[q.examTag, "Unresolved Mistake"]} />
-                    <p className="text-xs font-medium text-[#14241B] line-clamp-2">
-                      {q.questionText}
-                    </p>
+                    <div className="space-y-1 min-w-0">
+                      <MetaLine
+                        items={[
+                          q.subjectId.toUpperCase(),
+                          q.examTag,
+                          "Unresolved Mistake",
+                        ]}
+                      />
+                      <div className="text-xs sm:text-sm font-medium text-[#14241B] line-clamp-2">
+                        <MarkdownContent content={q.questionText} inline />
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        onNavigate("learn", {
+                          subjectId: q.subjectId,
+                          topicId: q.topicId,
+                        })
+                      }
+                    >
+                      Review Concept →
+                    </Button>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="p-4 rounded-lg bg-[#EAF2EC] border border-[#164A31]/25 text-xs text-[#14241B] space-y-1">
+            <div className="p-4 rounded-xl bg-[#EAF2EC] border border-[#164A31]/25 text-xs sm:text-sm text-[#14241B] space-y-1">
               <div className="font-semibold text-[#164A31]">
-                Next recommended action:
+                Build your accuracy signal
               </div>
-              <p>
-                Attempt at least 3 questions in a topic to establish a meaningful accuracy signal.
+              <p className="text-xs text-[#48564D]">
+                Solve at least 3 exam-style questions in a topic to identify strong areas and uncover common option traps.
               </p>
             </div>
           )}
@@ -881,23 +896,93 @@ export function HomeView({
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => onNavigate("practice")}
+              onClick={() => onNavigate("mock-tests")}
             >
-              Practise Questions
+              <Play className="w-3.5 h-3.5" />
+              Take 15-Min Timed Checkpoint
+            </Button>
+          </div>
+        </div>
+
+        {/* Right 5 Cols: Stuck on a Derivation? Ask AI Study Companion */}
+        <div className="lg:col-span-5 bg-white border border-[#E2E5DC] rounded-xl p-6 flex flex-col justify-between space-y-5">
+          <div className="space-y-2">
+            <MetaLine
+              items={[
+                "Step-by-Step Doubt Solver",
+                recommendation.subjectName,
+              ]}
+            />
+            <h2 className="text-xl font-bold text-[#14241B]">
+              Have a doubt in {activeOrNextTopic.title}?
+            </h2>
+            <p className="text-xs sm:text-sm text-[#48564D] leading-relaxed">
+              Ask the AI Tutor for a simple analogy, a full multi-line derivation, or a similar practice question—or attach a photo of a textbook problem.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-[#14241B]">
+              One-tap questions for your current topic:
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                onNavigate("doubts", {
+                  subjectId: activeOrNextTopic.subjectId,
+                  topicId: activeOrNextTopic.id,
+                  prefillDoubt: `Can you explain the core physical intuition and formula for ${activeOrNextTopic.title} step by step?`,
+                })
+              }
+              className="w-full text-left p-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] hover:bg-[#EAF2EC] text-xs text-[#14241B] transition-colors cursor-pointer"
+            >
+              &ldquo;Explain the core formula and intuition for{" "}
+              {activeOrNextTopic.title} step by step&rdquo; →
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onNavigate("doubts", {
+                  subjectId: activeOrNextTopic.subjectId,
+                  topicId: activeOrNextTopic.id,
+                  prefillDoubt: `What is the most common exam trap students fall into in ${activeOrNextTopic.title}?`,
+                })
+              }
+              className="w-full text-left p-3 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] hover:bg-[#EAF2EC] text-xs text-[#14241B] transition-colors cursor-pointer"
+            >
+              &ldquo;What is the most common exam trap in{" "}
+              {activeOrNextTopic.title}?&rdquo; →
+            </button>
+          </div>
+
+          <div className="pt-2 flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={() =>
+                onNavigate("doubts", {
+                  subjectId: activeOrNextTopic.subjectId,
+                  topicId: activeOrNextTopic.id,
+                })
+              }
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Open AI Study Companion
             </Button>
           </div>
         </div>
       </section>
 
       {/* =====================================================================
-          BELOW THE FOLD 2: EXPLORE SUBJECTS
+          3. SUBJECT PROGRESS & SYLLABUS QUICK-LAUNCH
          ===================================================================== */}
       <section className="space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <MetaLine items={[`${profile.targetExam} Curriculum`]} />
+            <MetaLine items={[`${profile.targetExam} Core Syllabus`]} />
             <h2 className="text-2xl font-bold text-[#14241B] mt-0.5">
-              Explore your subjects
+              Your subjects &amp; chapters
             </h2>
           </div>
           <Button
@@ -906,7 +991,7 @@ export function HomeView({
             size="sm"
             onClick={() => onNavigate("learn")}
           >
-            Open Full Syllabus
+            View Complete Syllabus
           </Button>
         </div>
 
@@ -916,6 +1001,9 @@ export function HomeView({
             const doneCount = state.completedTopicIds.filter((id) =>
               subjTopicIds.includes(id)
             ).length;
+            const sInsight = subjectInsights.find(
+              (si) => si.subjectId === subj.id
+            );
 
             return (
               <div
@@ -928,7 +1016,7 @@ export function HomeView({
                     className="w-full h-28"
                   />
 
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-bold text-[#14241B]">
                         {subj.name}
@@ -937,12 +1025,20 @@ export function HomeView({
                         {doneCount}/{subjTopicIds.length} topics
                       </span>
                     </div>
-                    <p className="text-xs text-[#48564D] leading-relaxed">
-                      {subj.description}
+                    <ProgressBar
+                      value={doneCount}
+                      max={subjTopicIds.length}
+                      tone="forest"
+                    />
+                    <p className="text-xs text-[#6E7B72]">
+                      {sInsight?.accuracyPct !== null &&
+                      sInsight?.accuracyPct !== undefined
+                        ? `Practice accuracy: ${sInsight.accuracyPct}% (${sInsight.correctCount}/${sInsight.attemptCount} correct)`
+                        : "No practice questions attempted in this subject yet"}
                     </p>
                   </div>
 
-                  {/* Chapter links */}
+                  {/* Direct Chapter Launch Links */}
                   <div className="space-y-1.5 pt-2 border-t border-[#E2E5DC]">
                     {subj.chapters.map((ch) => (
                       <button
@@ -973,7 +1069,7 @@ export function HomeView({
                     className="flex-1"
                     onClick={() => onNavigate("learn", { subjectId: subj.id })}
                   >
-                    Learn {subj.name}
+                    Study {subj.name}
                   </Button>
                   <Button
                     type="button"
@@ -993,74 +1089,35 @@ export function HomeView({
       </section>
 
       {/* =====================================================================
-          BELOW THE FOLD 3: PRACTISE QUESTIONS & ACTUAL LEARNING MILESTONES
+          4. VIDYAKSHARA CAREER INTELLIGENCE TEST (100% FREE DISCOVERY)
          ===================================================================== */}
-      <section className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-        <div className="lg:col-span-7 space-y-4">
+      <section className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-7 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+        <div className="space-y-2 max-w-2xl">
           <MetaLine
             items={[
-              "Exam-Style Question Bank & Timed Checkpoints",
-              "Configurable +4 / −1 Marking",
+              "Vidyakshara Career Intelligence Test",
+              "40 Questions · 20–25 Minutes",
+              "100% Free Personalized Report",
             ]}
           />
-          <h2 className="text-xl sm:text-2xl font-bold text-[#14241B]">
-            Test your understanding with chapter questions or a timed mock checkpoint
+          <h2 className="text-xl font-bold text-[#14241B]">
+            Discover where your interests could take you.
           </h2>
-          <p className="text-sm text-[#48564D] leading-relaxed">
-            Every attempt feeds directly into your Revision Queue and Progress Insights so you always know which topics are strong and which need a second look.
+          <p className="text-xs sm:text-sm text-[#48564D] leading-relaxed">
+            Explore your interests across Engineering, Healthcare, Commerce, Humanities, Design, Business, Law, Pure Sciences, Education, and Life Sciences — and receive a free personalized career-guidance report with a 7-day exploration plan.
           </p>
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => onNavigate("practice")}
-            >
-              Start practising questions
-              <ArrowRight className="w-4 h-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => onNavigate("mock-tests")}
-            >
-              Open Timed Mock Tests
-            </Button>
-          </div>
         </div>
 
-        <div className="lg:col-span-5 p-5 rounded-xl bg-[#FAF8F3] border border-[#E2E5DC] space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#14241B]">
-              Study Milestones (Real Activity)
-            </h3>
-            <span className="text-xs font-mono tabular-nums text-[#164A31] font-semibold">
-              {achievedMilestoneCount} / {actualMilestones.length}
-            </span>
-          </div>
-
-          <div className="space-y-2.5">
-            {actualMilestones.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-start gap-2.5 text-xs leading-relaxed"
-              >
-                {m.achieved ? (
-                  <CheckCircle2 className="w-4 h-4 text-[#164A31] shrink-0 mt-0.5" />
-                ) : (
-                  <Circle className="w-4 h-4 text-[#6E7B72] shrink-0 mt-0.5" />
-                )}
-                <span
-                  className={
-                    m.achieved
-                      ? "text-[#14241B] font-medium"
-                      : "text-[#6E7B72]"
-                  }
-                >
-                  {m.label}
-                </span>
-              </div>
-            ))}
-          </div>
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <Button
+            type="button"
+            variant="primary"
+            size="md"
+            onClick={() => onNavigate("career-discovery")}
+          >
+            <Compass className="w-4 h-4" />
+            Start My Free Assessment
+          </Button>
         </div>
       </section>
     </div>

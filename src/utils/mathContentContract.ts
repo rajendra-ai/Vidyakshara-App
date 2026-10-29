@@ -1,4 +1,4 @@
-import katex from "katex";
+import katex, { KatexOptions } from "katex";
 import "katex/contrib/mhchem";
 import {
   DoubtMessage,
@@ -7,6 +7,17 @@ import {
   StructuredTutorResponse,
   TutorPracticeQuestion,
 } from "../types/domain";
+
+/**
+ * Renders a LaTeX expression to an HTML+MathML string using the shared KaTeX
+ * instance with the mhchem (\ce, \pu) chemistry extension registered.
+ */
+export function renderLatexToString(
+  expression: string,
+  options?: KatexOptions
+): string {
+  return katex.renderToString(expression, options);
+}
 
 /**
  * Shared Mathematical & Educational Content Contract for Vidyakshara.
@@ -376,7 +387,7 @@ export function disambiguateCurrencyDollars(input: string): string {
           if (unescapedDollars && unescapedDollars.length % 2 === 1) {
             return line.replace(
               /(?<![\\$])\$(\d[\d,.]*)(?=\s|[.,;!?)]|$)/g,
-              "\\$$1"
+              (_m, digits: string) => `\\$${digits}`
             );
           }
           return line;

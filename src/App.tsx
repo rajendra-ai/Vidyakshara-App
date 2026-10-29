@@ -57,10 +57,146 @@ import {
   RevisionView,
   SettingsView,
 } from "./components/views/SecondaryAreasView";
+import {
+  CareerAssessmentState,
+  CareerGuidanceReport,
+  CareerSavedReportEntry,
+} from "./types/career";
+import {
+  appendReportToHistory,
+  createFreshCareerAssessmentState,
+  resetCareerStateForTabEntry,
+} from "./utils/careerScoringEngine";
+import { CareerDiscoveryView } from "./components/views/CareerDiscoveryView";
 
 const STORAGE_KEY = "vidyakshara_student_state_v2";
+const LEGACY_CAREER_STORAGE_KEY = "vidyakshara_career_assessment_v1";
+const CAREER_IN_PROGRESS_STORAGE_KEY = "vidyakshara_career_in_progress_v2";
+const CAREER_HISTORY_STORAGE_KEY = "vidyakshara_career_report_history_v1";
 const TOKENS_KEY = "vidyakshara_session_tokens_v2";
 const BROWSER_INSTANCE_KEY = "vidyakshara_browser_instance_v2";
+
+function loadStoredCareerHistory(): CareerSavedReportEntry[] {
+  try {
+    const raw = window.localStorage.getItem(CAREER_HISTORY_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed as CareerSavedReportEntry[];
+      }
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+  return [];
+}
+
+function saveStoredCareerHistory(history: CareerSavedReportEntry[]): void {
+  try {
+    window.localStorage.setItem(
+      CAREER_HISTORY_STORAGE_KEY,
+      JSON.stringify(history.slice(0, 25))
+    );
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+/**
+ * Hydrates and normalizes Career Discovery state on startup or browser refresh:
+ * - Never restores a completed report (`stage === "report"` or `completedReport`)
+ *   into the active session.
+ * - Preserves any completed report found in legacy storage or student state by
+ *   archiving it into `careerReportHistory` and `CAREER_HISTORY_STORAGE_KEY`.
+ * - Ensures the active `careerAssessment` always starts on `stage: "landing"`.
+ */
+function normalizeHydratedCareerState(
+  baseStudentState: StudentLearningState
+): StudentLearningState {
+  let history: CareerSavedReportEntry[] = [
+    ...(baseStudentState.careerReportHistory || []),
+  ];
+  const storedHistory = loadStoredCareerHistory();
+  storedHistory.forEach((entry) => {
+    if (
+      entry &&
+      entry.report &&
+      !history.some((h) => h.reportId === entry.reportId)
+    ) {
+      history.push(entry);
+    }
+  });
+
+  // Check legacy storage key and migrate any completed report to history, then remove the legacy key
+  let legacyCandidate: CareerAssessmentState | null = null;
+  try {
+    const rawLegacy = window.localStorage.getItem(LEGACY_CAREER_STORAGE_KEY);
+    if (rawLegacy) {
+      const parsedLegacy = JSON.parse(rawLegacy) as CareerAssessmentState;
+      if (parsedLegacy && typeof parsedLegacy === "object") {
+        legacyCandidate = parsedLegacy;
+      }
+      window.localStorage.removeItem(LEGACY_CAREER_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+
+  if (legacyCandidate) {
+    const { archivedReportEntry } = resetCareerStateForTabEntry(legacyCandidate);
+    if (archivedReportEntry) {
+      history = appendReportToHistory(history, archivedReportEntry.report, {
+        attemptId: archivedReportEntry.attemptId,
+        accessToken: archivedReportEntry.accessToken,
+      });
+    }
+  }
+
+  // Check in-progress draft slot or baseStudentState.careerAssessment
+  let candidateActive: CareerAssessmentState | null =
+    baseStudentState.careerAssessment || null;
+  try {
+    const rawDraft = window.localStorage.getItem(CAREER_IN_PROGRESS_STORAGE_KEY);
+    if (rawDraft) {
+      const parsedDraft = JSON.parse(rawDraft) as CareerAssessmentState;
+      if (parsedDraft && typeof parsedDraft === "object") {
+        candidateActive = parsedDraft;
+      }
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+
+  const { nextActiveState, archivedReportEntry } =
+    resetCareerStateForTabEntry(candidateActive);
+  if (archivedReportEntry) {
+    history = appendReportToHistory(history, archivedReportEntry.report, {
+      attemptId: archivedReportEntry.attemptId,
+      accessToken: archivedReportEntry.accessToken,
+    });
+  }
+
+  saveStoredCareerHistory(history);
+
+  try {
+    if (Object.keys(nextActiveState.responses || {}).length > 0) {
+      window.localStorage.setItem(
+        CAREER_IN_PROGRESS_STORAGE_KEY,
+        JSON.stringify(nextActiveState)
+      );
+    } else {
+      window.localStorage.removeItem(CAREER_IN_PROGRESS_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+
+  return {
+    ...baseStudentState,
+    careerAssessment: nextActiveState,
+    careerReportHistory: history,
+  };
+}
 
 function getBrowserInstanceId(): string {
   try {
@@ -111,17 +247,25 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved) as StudentLearningState;
         if (parsed && parsed.profile) {
-          return migrateLegacyStudentStateMath(parsed);
+          return normalizeHydratedCareerState(
+            migrateLegacyStudentStateMath(parsed)
+          );
         }
       }
     } catch {
       // Fallback to demo state if localStorage is unavailable
     }
-    return migrateLegacyStudentStateMath(createDemoStudentState());
+    return normalizeHydratedCareerState(
+      migrateLegacyStudentStateMath(createDemoStudentState())
+    );
   });
 
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(() => {
     try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("careerAttemptId") && params.get("accessToken")) {
+        return "career-discovery";
+      }
       const saved = window.localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as StudentLearningState;
@@ -151,10 +295,97 @@ export default function App() {
   const activeSessionTokenRef = useRef<string | null>(null);
   const activeServerStudentIdRef = useRef<string | null>(null);
 
-  // 1. Local browser persistence
+  // 0. Load secure Career Intelligence Report link if opened from Email/WhatsApp
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const params = new URLSearchParams(window.location.search);
+      const attemptId = params.get("careerAttemptId")?.trim();
+      const accessToken = params.get("accessToken")?.trim();
+      if (!attemptId || !accessToken) return;
+
+      let cancelled = false;
+      fetch(
+        `/api/career/attempts/${encodeURIComponent(
+          attemptId
+        )}?accessToken=${encodeURIComponent(accessToken)}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      )
+        .then(async (res) => {
+          if (!res.ok) return null;
+          return res.json();
+        })
+        .then((data) => {
+          if (cancelled || !data?.ok) return;
+          const loadedCareerState: CareerAssessmentState = {
+            sessionId: `cit-sess-link-${data.attemptId}`,
+            stage: data.completedReport ? "report" : "questions",
+            currentQuestionIndex: 0,
+            attemptId: data.attemptId,
+            accessToken,
+            studentDetails: data.studentDetails || null,
+            responses: data.responses || {},
+            completedReport: data.completedReport || null,
+            updatedAt: data.updatedAt,
+          };
+          try {
+            window.history.replaceState({}, "", window.location.pathname);
+          } catch {
+            // Ignore history replace errors
+          }
+          setState((prev) => {
+            const updatedHistory = data.completedReport
+              ? appendReportToHistory(
+                  prev.careerReportHistory,
+                  data.completedReport,
+                  { attemptId: data.attemptId, accessToken }
+                )
+              : prev.careerReportHistory;
+            if (updatedHistory) {
+              saveStoredCareerHistory(updatedHistory);
+            }
+            return {
+              ...prev,
+              careerAssessment: loadedCareerState,
+              careerReportHistory: updatedHistory,
+            };
+          });
+          setCurrentRoute("career-discovery");
+        })
+        .catch(() => {
+          // Ignore network error
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    } catch {
+      return;
+    }
+  }, []);
+
+  // 1. Local browser persistence (never persist a completed report in the active careerAssessment slot)
+  useEffect(() => {
+    try {
+      const { nextActiveState, archivedReportEntry } =
+        resetCareerStateForTabEntry(state.careerAssessment);
+      const historyToPersist = archivedReportEntry
+        ? appendReportToHistory(
+            state.careerReportHistory,
+            archivedReportEntry.report,
+            {
+              attemptId: archivedReportEntry.attemptId,
+              accessToken: archivedReportEntry.accessToken,
+            }
+          )
+        : state.careerReportHistory;
+      const stateForStorage: StudentLearningState = {
+        ...state,
+        careerAssessment: nextActiveState,
+        careerReportHistory: historyToPersist,
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stateForStorage));
     } catch {
       // Ignore storage quota errors
     }
@@ -252,25 +483,59 @@ export default function App() {
     setNavContext(options || {});
     setCurrentRoute(route);
     setMobileMoreOpen(false);
-    if (
-      state.profile &&
-      route !== "discover" &&
-      route !== "onboarding"
-    ) {
-      setState((prev) =>
-        prev.profile
-          ? {
-              ...prev,
-              profile: {
-                ...prev.profile,
-                lastActiveRoute: route,
-                lastActiveTopicId:
-                  options?.topicId || prev.profile.lastActiveTopicId,
-              },
+    setState((prev) => {
+      let nextCareerAssessment = prev.careerAssessment;
+      let nextCareerHistory = prev.careerReportHistory;
+
+      // Clicking the Career Discovery tab always resets the active session to the fresh landing page
+      // and archives any completed report so no previous candidate's report is displayed.
+      if (route === "career-discovery") {
+        const { nextActiveState, archivedReportEntry } =
+          resetCareerStateForTabEntry(prev.careerAssessment);
+        nextCareerAssessment = nextActiveState;
+        if (archivedReportEntry) {
+          nextCareerHistory = appendReportToHistory(
+            prev.careerReportHistory,
+            archivedReportEntry.report,
+            {
+              attemptId: archivedReportEntry.attemptId,
+              accessToken: archivedReportEntry.accessToken,
             }
-          : prev
-      );
-    }
+          );
+          saveStoredCareerHistory(nextCareerHistory);
+        }
+        try {
+          window.localStorage.removeItem(LEGACY_CAREER_STORAGE_KEY);
+          if (Object.keys(nextActiveState.responses || {}).length > 0) {
+            window.localStorage.setItem(
+              CAREER_IN_PROGRESS_STORAGE_KEY,
+              JSON.stringify(nextActiveState)
+            );
+          } else {
+            window.localStorage.removeItem(CAREER_IN_PROGRESS_STORAGE_KEY);
+          }
+        } catch {
+          // Ignore localStorage errors
+        }
+      }
+
+      const updatedProfile =
+        prev.profile && route !== "discover" && route !== "onboarding"
+          ? {
+              ...prev.profile,
+              lastActiveRoute: route,
+              lastActiveTopicId:
+                options?.topicId || prev.profile.lastActiveTopicId,
+            }
+          : prev.profile;
+
+      return {
+        ...prev,
+        profile: updatedProfile,
+        careerAssessment: nextCareerAssessment,
+        careerReportHistory: nextCareerHistory,
+      };
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -723,6 +988,66 @@ export default function App() {
     });
   };
 
+  const activeCareerState: CareerAssessmentState =
+    state.careerAssessment || createFreshCareerAssessmentState("landing");
+
+  const handleUpdateCareerState = (nextCareerState: CareerAssessmentState) => {
+    try {
+      window.localStorage.removeItem(LEGACY_CAREER_STORAGE_KEY);
+      const answeredCount = Object.keys(nextCareerState.responses || {}).length;
+      if (
+        !nextCareerState.completedReport &&
+        nextCareerState.stage !== "report" &&
+        answeredCount > 0 &&
+        answeredCount < 40
+      ) {
+        window.localStorage.setItem(
+          CAREER_IN_PROGRESS_STORAGE_KEY,
+          JSON.stringify(nextCareerState)
+        );
+      } else {
+        window.localStorage.removeItem(CAREER_IN_PROGRESS_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage quota errors
+    }
+    setState((prev) => ({
+      ...prev,
+      careerAssessment: nextCareerState,
+    }));
+  };
+
+  const handleArchiveCompletedReport = (
+    report: CareerGuidanceReport,
+    attemptMeta?: { attemptId?: string; accessToken?: string }
+  ) => {
+    setState((prev) => {
+      const updatedHistory = appendReportToHistory(
+        prev.careerReportHistory,
+        report,
+        attemptMeta
+      );
+      saveStoredCareerHistory(updatedHistory);
+      return {
+        ...prev,
+        careerReportHistory: updatedHistory,
+      };
+    });
+  };
+
+  const handleClearCareerData = () => {
+    try {
+      window.localStorage.removeItem(LEGACY_CAREER_STORAGE_KEY);
+      window.localStorage.removeItem(CAREER_IN_PROGRESS_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+    setState((prev) => ({
+      ...prev,
+      careerAssessment: createFreshCareerAssessmentState("landing"),
+    }));
+  };
+
   // Render Public Landing Page or 3-Step Student Onboarding when requested
   if (
     !state.profile ||
@@ -734,6 +1059,11 @@ export default function App() {
         initialStep={currentRoute === "onboarding" ? "onboarding" : "discover"}
         onCompleteOnboarding={handleCompleteOnboarding}
         onEnterDemoMode={handleEnterDemoMode}
+        careerState={activeCareerState}
+        onUpdateCareerState={handleUpdateCareerState}
+        onArchiveCompletedReport={handleArchiveCompletedReport}
+        onClearCareerData={handleClearCareerData}
+        onOpenCareerDiscovery={() => handleNavigate("career-discovery")}
       />
     );
   }
@@ -774,6 +1104,11 @@ export default function App() {
     icon: React.ReactNode;
   }[] = [
     {
+      id: "career-discovery",
+      label: "Career Discovery",
+      icon: <Compass className="w-3.5 h-3.5" />,
+    },
+    {
       id: "mock-tests",
       label: "Mock Tests",
       icon: <FileCheck2 className="w-3.5 h-3.5" />,
@@ -797,7 +1132,7 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col bg-[#FAF8F3] text-[#14241B] pb-16 md:pb-0 ${
+      className={`min-h-screen flex flex-col bg-[#FAF8F3] text-[#14241B] overflow-x-hidden pb-16 md:pb-0 ${
         isComfortableText ? "text-[17px]" : ""
       }`}
     >
@@ -809,7 +1144,7 @@ export default function App() {
       </a>
 
       {/* Strict 3-Zone Top Bar Contract */}
-      <header className="w-full bg-white border-b border-[#E2E5DC]">
+      <header className="print:hidden w-full bg-white border-b border-[#E2E5DC]">
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4 sm:gap-8">
           {/* Zone 1: Single text element wordmark */}
           <a
@@ -884,7 +1219,7 @@ export default function App() {
       </header>
 
       {/* Secondary Workspace Bar (Secondary Functions + Honest Sample/Personal Mode Switch) */}
-      <div className="w-full bg-[#F3F1EA] border-b border-[#E2E5DC]">
+      <div className="print:hidden w-full bg-[#F3F1EA] border-b border-[#E2E5DC]">
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
           {/* Secondary Tools on Desktop */}
           <div className="hidden md:flex items-center gap-1.5">
@@ -1105,12 +1440,24 @@ export default function App() {
             onSignOutToDiscovery={() => handleNavigate("discover")}
           />
         )}
+
+        {currentRoute === "career-discovery" && (
+          <CareerDiscoveryView
+            careerState={activeCareerState}
+            studentName={profile.name}
+            isAnonymousSession={profile.isDemoAccount}
+            onUpdateCareerState={handleUpdateCareerState}
+            onArchiveCompletedReport={handleArchiveCompletedReport}
+            onClearCareerData={handleClearCareerData}
+            onBackToStudyWorkspace={() => handleNavigate("home")}
+          />
+        )}
       </main>
 
       {/* Mobile Bottom Navigation Bar (Prioritises Home, Learn, Practice, AI Tutor, Revision) */}
       <nav
         aria-label="Mobile bottom navigation"
-        className="md:hidden fixed bottom-0 inset-x-0 z-40 h-14 bg-white border-t border-[#E2E5DC] grid grid-cols-5 items-center px-1"
+        className="print:hidden md:hidden fixed bottom-0 inset-x-0 z-40 h-14 bg-white border-t border-[#E2E5DC] grid grid-cols-5 items-center px-1"
       >
         {primaryNavItems.map((item) => {
           const active = currentRoute === item.id;
@@ -1133,12 +1480,19 @@ export default function App() {
       </nav>
 
       {/* Quiet Footer */}
-      <footer className="w-full border-t border-[#E2E5DC] bg-white py-6 px-4 sm:px-6 mt-12">
+      <footer className="print:hidden w-full border-t border-[#E2E5DC] bg-white py-6 px-4 sm:px-6 mt-12">
         <div className="max-w-[1280px] mx-auto flex flex-wrap items-center justify-between gap-4 text-xs text-[#6E7B72]">
           <div>
             Vidyakshara — Student Learning Companion for Class 11 &amp; 12 (JEE Main · JEE Advanced · NEET UG)
           </div>
           <div className="flex flex-wrap items-center gap-5">
+            <button
+              type="button"
+              onClick={() => handleNavigate("career-discovery")}
+              className="text-[#164A31] font-semibold hover:underline cursor-pointer"
+            >
+              Career Discovery Test
+            </button>
             <button
               type="button"
               onClick={() => handleNavigate("discover")}

@@ -1,3 +1,5 @@
+import { CareerAssessmentState, CareerSavedReportEntry } from "./career";
+
 export type ClassLevel = "11" | "12";
 
 export type TargetExam =
@@ -25,7 +27,8 @@ export type AppRoute =
   | "mock-tests"
   | "progress"
   | "notes"
-  | "settings";
+  | "settings"
+  | "career-discovery";
 
 export interface StudyPreferences {
   dailyStudyMinutes: 45 | 90 | 150;
@@ -387,6 +390,8 @@ export interface StudentLearningState {
   mockResults: MockTestAttemptResult[];
   notes: StudentNote[];
   doubtHistory: DoubtMessage[];
+  careerAssessment?: CareerAssessmentState;
+  careerReportHistory?: CareerSavedReportEntry[];
 }
 
 

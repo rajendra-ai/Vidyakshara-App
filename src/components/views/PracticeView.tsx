@@ -264,26 +264,60 @@ export function PracticeView({
           </div>
         </div>
 
-        {/* Filter Bar: Subject + Question Format */}
+        {/* Filter Bar: Subject + Topic Selector + Question Format */}
         <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-[#E2E5DC]">
-          <SegmentedControl
-            ariaLabel="Filter by Subject"
-            value={subjectFilter}
-            onChange={(val) => {
-              setSubjectFilter(val);
-              setChapterFilter("all");
-              setTopicFilter("all");
-              setCurrentIdx(0);
-              setShowSessionSummary(false);
-            }}
-            options={[
-              { id: "all", label: "All Subjects" },
-              ...applicableSubjects.map((s) => ({
-                id: s.id,
-                label: s.name,
-              })),
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <SegmentedControl
+              ariaLabel="Filter by Subject"
+              value={subjectFilter}
+              onChange={(val) => {
+                setSubjectFilter(val);
+                setChapterFilter("all");
+                setTopicFilter("all");
+                setCurrentIdx(0);
+                setShowSessionSummary(false);
+              }}
+              options={[
+                { id: "all", label: "All Subjects" },
+                ...applicableSubjects.map((s) => ({
+                  id: s.id,
+                  label: s.name,
+                })),
+              ]}
+            />
+
+            <select
+              aria-label="Filter by Topic"
+              value={topicFilter}
+              onChange={(e) => {
+                const val = e.target.value;
+                setTopicFilter(val);
+                if (val !== "all") {
+                  const foundTopic = TOPICS.find((t) => t.id === val);
+                  if (foundTopic) {
+                    setSubjectFilter(foundTopic.subjectId);
+                    setChapterFilter(foundTopic.chapterId);
+                  }
+                } else {
+                  setChapterFilter("all");
+                }
+                setCurrentIdx(0);
+                setShowSessionSummary(false);
+              }}
+              className="px-3 py-2 rounded-lg bg-[#FAF8F3] border border-[#E2E5DC] text-xs font-medium text-[#14241B]"
+            >
+              <option value="all">All Topics in Selection</option>
+              {TOPICS.filter((t) =>
+                subjectFilter === "all"
+                  ? applicableSubjects.some((s) => s.id === t.subjectId)
+                  : t.subjectId === subjectFilter
+              ).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.subjectId.toUpperCase()}: {t.title}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <SegmentedControl
@@ -302,32 +336,66 @@ export function PracticeView({
               ]}
             />
 
-            {(chapterFilter !== "all" || topicFilter !== "all") && (
+            {(chapterFilter !== "all" ||
+              topicFilter !== "all" ||
+              questionTypeFilter !== "all") && (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setChapterFilter("all");
-                  setTopicFilter("all");
-                  setCurrentIdx(0);
-                }}
+                onClick={handleResetFilters}
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                Clear Topic Filter
+                Reset Filters
               </Button>
             )}
           </div>
         </div>
 
-        {/* Save & Resume Transparency Note */}
+        {/* Active Topic Context Banner (Connects Learn <-> Practice Loop) */}
+        {topicFilter !== "all" &&
+          (() => {
+            const focusedTopic = TOPICS.find((t) => t.id === topicFilter);
+            if (!focusedTopic) return null;
+            return (
+              <div className="p-3.5 rounded-xl bg-[#EAF2EC]/70 border border-[#164A31]/20 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-[#14241B]">
+                  Practising topic:{" "}
+                  <strong>{focusedTopic.title}</strong> (Class{" "}
+                  {focusedTopic.classLevel})
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    onNavigate("learn", {
+                      subjectId: focusedTopic.subjectId,
+                      topicId: focusedTopic.id,
+                    })
+                  }
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  Read Concept Notes &amp; Formulas
+                </Button>
+              </div>
+            );
+          })()}
+
+        {/* Save & Resume Status */}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#6E7B72] pt-1">
           <span>
-            Your current question position and answers are automatically saved in this browser so you can resume anytime.
+            Your current question position and answers are saved automatically so you can resume anytime.
           </span>
-          <span>
-            All questions are illustrative exam-style practice problems verified for conceptual accuracy.
-          </span>
+          {incorrectInSet.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onNavigate("revision")}
+              className="font-semibold text-[#164A31] hover:underline cursor-pointer"
+            >
+              {incorrectInSet.length} mistake{incorrectInSet.length > 1 ? "s" : ""} queued for Revision →
+            </button>
+          )}
         </div>
       </section>
 
@@ -335,10 +403,10 @@ export function PracticeView({
       {filteredQuestions.length === 0 ? (
         <div className="bg-white border border-[#E2E5DC] rounded-xl p-10 text-center space-y-4">
           <h2 className="text-lg font-semibold text-[#14241B]">
-            No questions match this exact filter combination
+            No questions match this filter combination
           </h2>
           <p className="text-sm text-[#48564D] max-w-md mx-auto">
-            Reset the question format or subject filter to practise all available questions.
+            Reset the question format or topic filter to practise all available questions.
           </p>
           <Button type="button" variant="secondary" onClick={handleResetFilters}>
             Reset All Filters
@@ -353,24 +421,21 @@ export function PracticeView({
             <div className="space-y-1.5">
               <MetaLine
                 items={[
-                  "Practice Session Results & Insights",
+                  "Practice Session Summary",
                   `${attemptedInSet.length} of ${filteredQuestions.length} Questions Attempted`,
-                  attemptedInSet.length < 3
-                    ? "Limited Evidence (<3 questions)"
-                    : "Meaningful Session Sample",
                 ]}
               />
               <h2 className="text-2xl font-bold text-[#14241B]">
                 {attemptedInSet.length === 0
-                  ? "Start answering questions to build your session insights"
+                  ? "Start answering questions to see your session summary"
                   : attemptedInSet.length < 3
-                  ? `Initial signal (${correctInSet.length}/${attemptedInSet.length} correct) — attempt at least 3 questions to confirm a trend`
+                  ? `You answered ${correctInSet.length} of ${attemptedInSet.length} correctly — try at least 3 questions for a full trend`
                   : accuracyPct >= 75
                   ? "Strong performance across this practice set!"
-                  : "Good effort! Reviewing your mistakes now will lock in these concepts."}
+                  : "Good effort! Reviewing your missed questions below will lock in these concepts."}
               </h2>
               <p className="text-xs text-[#6E7B72]">
-                Vidyakshara never infers mastery from a single question. Attempt at least 3 questions per topic for a reliable accuracy trend.
+                Solve at least 3 questions per topic to unlock topic-level mastery insights on your Progress page.
               </p>
             </div>
 
@@ -450,7 +515,11 @@ export function PracticeView({
                           items={[
                             `Question ${qIndex + 1}`,
                             mq.subjectId.toUpperCase(),
-                            mq.keyConceptTested,
+                            <MarkdownContent
+                              key="concept"
+                              content={mq.keyConceptTested}
+                              inline
+                            />,
                           ]}
                         />
                         <div className="text-xs sm:text-sm font-medium text-[#14241B] line-clamp-1">

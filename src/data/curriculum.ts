@@ -11,7 +11,7 @@ import {
 } from "../types/domain";
 
 export const SYLLABUS_DATASET_NOTICE =
-  "Curated Illustrative Study Dataset — Organised around common Class 11 & 12 NCERT concepts for JEE Main, JEE Advanced, and NEET UG. Structured so an expanded full-syllabus dataset can be added directly.";
+  "Aligned with Class 11 & 12 NCERT chapters and high-weightage JEE Main, JEE Advanced, and NEET UG concepts.";
 
 export const SUBJECTS: Subject[] = [
   {

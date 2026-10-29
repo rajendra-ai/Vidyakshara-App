@@ -385,7 +385,7 @@ export function DoubtSolverView({
         });
         setErrorMessage(
           data?.error ||
-            "The AI tutor service did not respond. No fake answer was shown — you can retry your question below."
+            "The AI tutor could not respond right now. You can retry your question below or review the topic formulas on the left."
         );
         return;
       }
@@ -414,7 +414,7 @@ export function DoubtSolverView({
         attachment: attachmentToUse,
       });
       setErrorMessage(
-        "We could not reach the AI tutor right now. No fake response was generated — please check your connection or click Retry below."
+        "Could not reach the AI tutor right now. Please check your connection or click Retry below."
       );
     } finally {
       setIsSubmitting(false);
@@ -523,10 +523,9 @@ export function DoubtSolverView({
           <div className="p-3.5 rounded-lg bg-[#FDF6E7] border border-[#F2D08B] text-xs text-[#8F4B00] flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
-              <strong>Live Tutor Notice:</strong> Live AI replies are currently
-              offline. Vidyakshara never shows fake AI answers when the live
-              tutor is offline — you can still review the verified topic
-              formulas and worked breakdown below.
+              <strong>Tutor Status:</strong> Live AI responses are currently
+              offline. You can still review all verified topic formulas,
+              definitions, and worked examples on this page.
             </div>
           </div>
         )}

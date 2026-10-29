@@ -12,6 +12,8 @@ import {
   normalizeStructuredTutorResponse,
   parseTutorJsonSafely,
 } from "./src/utils/mathContentContract";
+import { validateAICareerNarrative } from "./src/utils/careerScoringEngine";
+import { CareerAssessmentStore } from "./src/utils/careerServerService";
 
 dotenv.config();
 
@@ -32,6 +34,8 @@ interface StoredStudentRecord {
 
 const DATA_DIR = path.join(__dirname, ".data");
 const STORE_FILE = path.join(DATA_DIR, "student_records.json");
+const CAREER_ATTEMPTS_FILE = path.join(DATA_DIR, "career_attempts.json");
+const careerAttemptStore = new CareerAssessmentStore(CAREER_ATTEMPTS_FILE);
 
 function loadStudentStore(): Record<string, StoredStudentRecord> {
   try {
@@ -603,6 +607,154 @@ In 3 short, friendly points (using Markdown for prose, $...$ for inline formulas
   }
 });
 
+app.post("/api/career/personalize-report", async (req, res) => {
+  const {
+    dimensionScores,
+    leadingCombinations,
+    recommendedClusters,
+    workStyleSummary,
+  } = req.body || {};
+
+  if (!Array.isArray(dimensionScores) || dimensionScores.length === 0) {
+    res.status(400).json({
+      error: "Deterministic assessment scores are required.",
+      code: "INVALID_REQUEST",
+    });
+    return;
+  }
+
+  const ai = getGeminiClient();
+  if (!ai) {
+    res.status(503).json({
+      error:
+        "AI narrative commentary is not configured in this environment. Your complete free deterministic report is displayed in full.",
+      code: "CREDENTIALS_REQUIRED",
+    });
+    return;
+  }
+
+  try {
+    const scoreSummary = dimensionScores
+      .map(
+        (d: { shortLabel?: string; normalizedScore?: number; levelLabel?: string }) =>
+          `${d.shortLabel || "Dimension"}: ${d.normalizedScore ?? 0}/100 (${d.levelLabel || ""})`
+      )
+      .join(", ");
+
+    const comboSummary = Array.isArray(leadingCombinations)
+      ? leadingCombinations
+          .map(
+            (c: { combinationCode?: string; title?: string }) =>
+              `${c.combinationCode || ""}: ${c.title || ""}`
+          )
+          .join(" | ")
+      : "";
+
+    const clusterSummary = Array.isArray(recommendedClusters)
+      ? recommendedClusters
+          .slice(0, 5)
+          .map(
+            (m: { cluster?: { title?: string }; alignmentScore?: number }) =>
+              `${m.cluster?.title || "Cluster"} (${m.alignmentScore ?? 0}/100)`
+          )
+          .join(", ")
+      : "";
+
+    const systemInstruction = `You are a thoughtful, encouraging career-exploration advisor for Indian secondary and senior-secondary students (Classes 9–12).
+Your task is to turn a student's deterministic career-interest assessment scores into clear, personal commentary.
+
+STRICT ETHICAL & CONTENT GUARDRAILS:
+1. Base your explanation strictly on the provided interest scores, combinations, and work-style preferences.
+2. Use accessible, warm English suitable for Indian students.
+3. Acknowledge uncertainty and remind the student that interests can evolve over time.
+4. NEVER invent biographical facts, academic marks, abilities, achievements, or psychological traits.
+5. NEVER claim to predict income, admission success, future happiness, or professional success.
+6. NEVER label a student as incapable or unfit for any field.
+7. NEVER suggest that one career stream (such as Engineering or Medicine) is inherently more prestigious or valuable than another.`;
+
+    const response = await generateTutorContentWithRetry(
+      ai,
+      {
+        contents: `Student's 6-Dimension Interest Profile:
+${scoreSummary}
+
+Leading Combinations:
+${comboSummary}
+
+Top Recommended Career Clusters:
+${clusterSummary}
+
+Work & Learning Preferences:
+Environment: ${workStyleSummary?.preferredEnvironment || ""}
+Learning Approach: ${workStyleSummary?.learningApproach || ""}
+Collaboration: ${workStyleSummary?.collaborationStyle || ""}
+
+Return a JSON object with:
+1. personalizedOverview: 2–3 encouraging sentences synthesizing what their overall pattern of interests suggests without making fixed predictions.
+2. combinationCommentary: 2–3 sentences explaining how their top two interest dimensions complement each other in real-world projects.
+3. encouragementNote: 1–2 practical, reassuring sentences encouraging curiosity and small experiments.`,
+        config: {
+          systemInstruction,
+          temperature: 0.3,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              personalizedOverview: {
+                type: Type.STRING,
+                description:
+                  "2-3 encouraging sentences explaining the student's interest pattern.",
+              },
+              combinationCommentary: {
+                type: Type.STRING,
+                description:
+                  "2-3 sentences explaining how their leading interest dimensions work together.",
+              },
+              encouragementNote: {
+                type: Type.STRING,
+                description:
+                  "1-2 reassuring sentences encouraging low-cost real-world exploration.",
+              },
+            },
+            required: [
+              "personalizedOverview",
+              "combinationCommentary",
+              "encouragementNote",
+            ],
+          },
+        },
+      },
+      18000
+    );
+
+    const rawText = response.text?.trim();
+    const parsed = rawText
+      ? parseTutorJsonSafely<Record<string, unknown>>(rawText)
+      : null;
+    const validated = validateAICareerNarrative(parsed);
+
+    if (!validated) {
+      res.status(502).json({
+        error:
+          "AI commentary could not be validated. Your complete deterministic report remains available.",
+        code: "INVALID_AI_NARRATIVE",
+      });
+      return;
+    }
+
+    res.json({
+      narrative: validated,
+      mode: "ai-enhanced",
+    });
+  } catch {
+    res.status(502).json({
+      error:
+        "AI commentary service is temporarily unavailable. Your complete deterministic report remains available.",
+      code: "SERVICE_UNAVAILABLE",
+    });
+  }
+});
+
 /* ============================================================================
  * SERVER-SIDE STUDENT PERSISTENCE & USER-SPECIFIC ACCESS CONTROL
  * ========================================================================== */
@@ -727,6 +879,144 @@ app.put("/api/student/:studentId/state", (req, res) => {
     ok: true,
     studentId: cleanId,
     updatedAt: record.updatedAt,
+  });
+});
+
+function extractCareerAccessToken(req: express.Request): string | null {
+  const bearer = extractBearerToken(req);
+  if (bearer) return bearer;
+  if (typeof req.query?.accessToken === "string" && req.query.accessToken.trim()) {
+    return req.query.accessToken.trim();
+  }
+  if (
+    req.body &&
+    typeof req.body.accessToken === "string" &&
+    req.body.accessToken.trim()
+  ) {
+    return req.body.accessToken.trim();
+  }
+  return null;
+}
+
+/* =========================================================================
+ * CAREER INTELLIGENCE TEST: ATTEMPT PERSISTENCE & TOKEN ACCESS
+ * ======================================================================= */
+app.post("/api/career/attempts", (req, res) => {
+  const { attemptId, studentDetails, responses, aiNarrative } = req.body || {};
+  const accessToken = extractCareerAccessToken(req) || undefined;
+
+  const result = careerAttemptStore.upsertAttempt({
+    attemptId: typeof attemptId === "string" ? attemptId : undefined,
+    accessToken,
+    studentDetails,
+    responses,
+    aiNarrative,
+  });
+
+  if (result.status === "validation_error") {
+    res.status(400).json({
+      error: "Please review and complete the highlighted student details.",
+      code: "VALIDATION_ERROR",
+      fieldErrors: result.errors,
+    });
+    return;
+  }
+
+  if (result.status === "unauthorized" || !result.record) {
+    res.status(403).json({
+      error:
+        "Access denied: Invalid or expired access token for this career assessment attempt.",
+      code: "FORBIDDEN",
+    });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    attemptId: result.record.attemptId,
+    accessToken: result.record.accessToken,
+    expiresAt: result.record.expiresAt,
+    studentDetails: result.record.studentDetails,
+    responses: result.record.responses,
+    completedReport: result.record.completedReport,
+    updatedAt: result.record.updatedAt,
+  });
+});
+
+app.get("/api/career/attempts/:attemptId", (req, res) => {
+  const attemptId = (req.params.attemptId || "").trim();
+  const accessToken = extractCareerAccessToken(req);
+
+  const result = careerAttemptStore.getAuthorizedAttempt(
+    attemptId,
+    accessToken
+  );
+
+  if (result.status === "not_found") {
+    res.status(404).json({
+      error: "Career assessment attempt not found.",
+      code: "NOT_FOUND",
+    });
+    return;
+  }
+
+  if (result.status === "expired") {
+    res.status(403).json({
+      error: "This report access link has expired.",
+      code: "EXPIRED_TOKEN",
+    });
+    return;
+  }
+
+  if (result.status !== "ok" || !result.record) {
+    res.status(403).json({
+      error:
+        "Access denied: A valid access token is required to view this student's Career Intelligence Report.",
+      code: "FORBIDDEN",
+    });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    attemptId: result.record.attemptId,
+    expiresAt: result.record.expiresAt,
+    studentDetails: result.record.studentDetails,
+    responses: result.record.responses,
+    completedReport: result.record.completedReport,
+    completedAt: result.record.completedAt,
+    updatedAt: result.record.updatedAt,
+  });
+});
+
+app.delete("/api/career/attempts/:attemptId", (req, res) => {
+  const attemptId = (req.params.attemptId || "").trim();
+  const accessToken = extractCareerAccessToken(req);
+
+  const result = careerAttemptStore.deleteAuthorizedAttempt(
+    attemptId,
+    accessToken
+  );
+
+  if (result.status === "not_found") {
+    res.status(404).json({
+      error: "Career assessment attempt not found.",
+      code: "NOT_FOUND",
+    });
+    return;
+  }
+
+  if (result.status !== "ok") {
+    res.status(403).json({
+      error: "Access denied: Valid access token required to delete data.",
+      code: "FORBIDDEN",
+    });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    deletedAttemptId: attemptId,
   });
 });
 

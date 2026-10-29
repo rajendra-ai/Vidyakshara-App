@@ -21,21 +21,71 @@ import { SUBJECTS } from "../../data/curriculum";
 import { Button, MetaLine, ProgressBar, SegmentedControl } from "../ui/Primitives";
 import { MarkdownContent, MathRenderer } from "../ui/MathAndDiagrams";
 import { SubjectIllustration } from "../ui/SubjectIllustration";
+import {
+  CareerAssessmentState,
+  CareerGuidanceReport,
+} from "../../types/career";
+import {
+  createFreshCareerAssessmentState,
+  resetCareerStateForTabEntry,
+} from "../../utils/careerScoringEngine";
+import { CareerDiscoveryView } from "./CareerDiscoveryView";
 
 interface DiscoveryAndAuthViewProps {
-  initialStep?: "discover" | "onboarding";
+  initialStep?: "discover" | "onboarding" | "career-discovery";
   onCompleteOnboarding: (profile: StudentProfile) => void;
   onEnterDemoMode: () => void;
+  careerState?: CareerAssessmentState;
+  onUpdateCareerState?: (nextState: CareerAssessmentState) => void;
+  onArchiveCompletedReport?: (
+    report: CareerGuidanceReport,
+    attemptMeta?: { attemptId?: string; accessToken?: string }
+  ) => void;
+  onClearCareerData?: () => void;
+  onOpenCareerDiscovery?: () => void;
 }
 
 export function DiscoveryAndAuthView({
   initialStep = "discover",
   onCompleteOnboarding,
   onEnterDemoMode,
+  careerState,
+  onUpdateCareerState,
+  onArchiveCompletedReport,
+  onClearCareerData,
 }: DiscoveryAndAuthViewProps) {
-  const [viewMode, setViewMode] = useState<"discover" | "onboarding">(
-    initialStep
-  );
+  const [viewMode, setViewMode] = useState<
+    "discover" | "onboarding" | "career-discovery"
+  >(initialStep);
+  const [localCareerState, setLocalCareerState] =
+    useState<CareerAssessmentState>(
+      () => careerState || createFreshCareerAssessmentState("landing")
+    );
+
+  const effectiveCareerState = careerState || localCareerState;
+  const handleCareerStateChange = (next: CareerAssessmentState) => {
+    setLocalCareerState(next);
+    onUpdateCareerState?.(next);
+  };
+  const handleCareerClear = () => {
+    const fresh = createFreshCareerAssessmentState("landing");
+    setLocalCareerState(fresh);
+    onClearCareerData?.();
+  };
+  const handleOpenCareerDiscoveryTab = () => {
+    const { nextActiveState, archivedReportEntry } =
+      resetCareerStateForTabEntry(effectiveCareerState);
+    if (archivedReportEntry) {
+      onArchiveCompletedReport?.(archivedReportEntry.report, {
+        attemptId: archivedReportEntry.attemptId,
+        accessToken: archivedReportEntry.accessToken,
+      });
+    }
+    setLocalCareerState(nextActiveState);
+    onUpdateCareerState?.(nextActiveState);
+    setViewMode("career-discovery");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const [previewTab, setPreviewTab] = useState<"concept" | "practice" | "doubt">(
     "concept"
   );
@@ -118,7 +168,7 @@ export function DiscoveryAndAuthView({
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FAF8F3] text-[#14241B]">
+    <div className="min-h-screen flex flex-col bg-[#FAF8F3] text-[#14241B] overflow-x-hidden">
       <a
         href="#landing-main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#164A31] focus:text-white focus:rounded-lg focus:text-xs focus:font-semibold"
@@ -127,7 +177,7 @@ export function DiscoveryAndAuthView({
       </a>
 
       {/* Strict 3-Zone Top Bar Contract */}
-      <header className="w-full border-b border-[#E2E5DC] bg-white">
+      <header className="print:hidden w-full border-b border-[#E2E5DC] bg-white">
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4 sm:gap-8">
           {/* Zone 1: Brand Title */}
           <a
@@ -141,7 +191,7 @@ export function DiscoveryAndAuthView({
             Vidyakshara
           </a>
 
-          {/* Zone 2: 4 Concise Nav Links */}
+          {/* Zone 2: Concise Nav Links */}
           <nav
             aria-label="Landing page navigation"
             className="hidden md:flex items-center gap-6 text-sm font-medium text-[#48564D]"
@@ -166,16 +216,17 @@ export function DiscoveryAndAuthView({
             >
               Subjects
             </a>
-            <a
-              href="#features"
-              onClick={(e) => {
-                e.preventDefault();
-                scrollToSection("features");
-              }}
-              className="hover:text-[#14241B] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+            <button
+              type="button"
+              onClick={handleOpenCareerDiscoveryTab}
+              className={`transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                viewMode === "career-discovery"
+                  ? "text-[#164A31] font-semibold underline decoration-2 underline-offset-8"
+                  : "hover:text-[#14241B] hover:underline underline-offset-4"
+              }`}
             >
-              Study Tools
-            </a>
+              Career Discovery
+            </button>
             <button
               type="button"
               onClick={onEnterDemoMode}
@@ -247,9 +298,10 @@ export function DiscoveryAndAuthView({
                       type="button"
                       variant="secondary"
                       size="lg"
-                      onClick={() => scrollToSection("how-it-works")}
+                      onClick={handleOpenCareerDiscoveryTab}
                     >
-                      Explore how it works
+                      <Compass className="w-4 h-4" />
+                      Career Discovery Test (Free)
                     </Button>
                   </div>
 
@@ -961,8 +1013,27 @@ export function DiscoveryAndAuthView({
         </main>
       )}
 
+      {/* =====================================================================
+          ANONYMOUS / PUBLIC CAREER DISCOVERY ASSESSMENT FLOW
+         ===================================================================== */}
+      {viewMode === "career-discovery" && (
+        <main
+          id="landing-main"
+          className="flex-1 w-full max-w-[1280px] mx-auto px-4 sm:px-6 py-6 sm:py-8"
+        >
+          <CareerDiscoveryView
+            careerState={effectiveCareerState}
+            isAnonymousSession={true}
+            onUpdateCareerState={handleCareerStateChange}
+            onArchiveCompletedReport={onArchiveCompletedReport}
+            onClearCareerData={handleCareerClear}
+            onBackToStudyWorkspace={() => setViewMode("discover")}
+          />
+        </main>
+      )}
+
       {/* CLEAR FOOTER WITH RELEVANT WORKING LINKS */}
-      <footer className="border-t border-[#E2E5DC] bg-white py-8 px-4 sm:px-6">
+      <footer className="print:hidden border-t border-[#E2E5DC] bg-white py-8 px-4 sm:px-6">
         <div className="max-w-[1280px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 text-xs text-[#6E7B72]">
           <div className="space-y-1">
             <div className="font-bold text-sm text-[#164A31]">Vidyakshara</div>
@@ -972,6 +1043,13 @@ export function DiscoveryAndAuthView({
           </div>
 
           <div className="flex flex-wrap items-center gap-6 text-xs font-medium text-[#48564D]">
+            <button
+              type="button"
+              onClick={handleOpenCareerDiscoveryTab}
+              className="text-[#164A31] font-semibold hover:underline cursor-pointer"
+            >
+              Career Discovery Test (Free)
+            </button>
             <button
               type="button"
               onClick={() => scrollToSection("how-it-works")}

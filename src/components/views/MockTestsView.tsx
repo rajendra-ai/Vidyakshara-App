@@ -910,7 +910,7 @@ export function MockTestsView({
           Practise under real exam timing and review every mistake
         </h1>
         <p className="text-sm text-[#48564D] max-w-3xl leading-relaxed">
-          Start a focused checkpoint test with configurable duration and marking rules. All questions are verified Vidyakshara curriculum problems designed for exam practice—they do not claim to reproduce an official NTA exam paper.
+          Start a focused checkpoint test with configurable duration and marking rules to build exam speed, question selection discipline, and accuracy.
         </p>
       </section>
 
@@ -1041,9 +1041,8 @@ export function MockTestsView({
                   test.
                 </li>
                 <li>
-                  <strong>Curriculum Honesty:</strong> This is a curated
-                  Vidyakshara practice checkpoint, not an official NTA past
-                  examination paper.
+                  After submitting, you will get a full question-by-question
+                  solution breakdown and option-trap analysis.
                 </li>
               </ul>
             </div>

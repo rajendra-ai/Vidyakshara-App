@@ -43,7 +43,7 @@ export function Button({
 }
 
 interface MetaLineProps {
-  items: (string | undefined | false)[];
+  items: (React.ReactNode | undefined | false)[];
   className?: string;
 }
 
@@ -52,13 +52,16 @@ interface MetaLineProps {
  * in strict compliance with Zero-Pill Metadata Discipline.
  */
 export function MetaLine({ items, className = "" }: MetaLineProps) {
-  const validItems = items.filter((item): item is string => Boolean(item));
+  const validItems = items.filter(
+    (item): item is React.ReactNode =>
+      item !== undefined && item !== false && item !== null && item !== ""
+  );
   if (validItems.length === 0) return null;
 
   return (
     <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#6E7B72] ${className}`}>
       {validItems.map((item, idx) => (
-        <React.Fragment key={`${item}-${idx}`}>
+        <React.Fragment key={idx}>
           {idx > 0 && <span aria-hidden="true">·</span>}
           <span>{item}</span>
         </React.Fragment>

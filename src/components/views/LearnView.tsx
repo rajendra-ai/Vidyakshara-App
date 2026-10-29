@@ -172,9 +172,12 @@ export function LearnView({
       "Key Takeaways:",
       ...activeTopic.keyTakeaways.map((k) => `• ${k}`),
       "Formulas & Definitions:",
-      ...activeTopic.definitionsAndFormulas.map(
-        (d) => `• ${d.term}: ${d.formula || ""} — ${d.meaning}`
-      ),
+      ...activeTopic.definitionsAndFormulas.map((d) => {
+        const cleanFormula = d.formula
+          ? `$${d.formula.trim().replace(/^\$\$|\$\$$/g, "").replace(/^\$|\$$/g, "").trim()}$`
+          : "";
+        return `• **${d.term}**: ${cleanFormula ? `${cleanFormula} — ` : ""}${d.meaning}`;
+      }),
     ].join("\n");
 
     onSaveTopicToNotes(
@@ -422,7 +425,7 @@ export function LearnView({
                             />
                           </div>
 
-                          <div className="flex items-center gap-2.5 shrink-0">
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
                             <Button
                               type="button"
                               variant="primary"
@@ -431,6 +434,21 @@ export function LearnView({
                             >
                               <BookOpen className="w-3.5 h-3.5" />
                               {isDone ? "Review Concept" : "Study Concept"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() =>
+                                onNavigate("practice", {
+                                  subjectId: topic.subjectId,
+                                  chapterId: topic.chapterId,
+                                  topicId: topic.id,
+                                })
+                              }
+                            >
+                              <Target className="w-3.5 h-3.5" />
+                              Practise ({topicQCount})
                             </Button>
                           </div>
                         </div>
@@ -452,32 +470,78 @@ export function LearnView({
   const kc = activeTopic.knowledgeCheck;
   const kcIsCorrect = kcSubmitted && kcSelected === kc.correctId;
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      {/* Top Breadcrumb & Return to Syllabus Explorer Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-[#E2E5DC] rounded-xl px-5 py-3.5">
-        <button
-          type="button"
-          onClick={() => setMode("explorer")}
-          className="inline-flex items-center gap-2 text-xs font-semibold text-[#164A31] hover:underline cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Syllabus Explorer ({activeTopicSubject.name} · Class{" "}
-          {activeTopic.classLevel})
-        </button>
+  const scrollToLessonSection = (sectionId: string) => {
+    const el = document.getElementById(sectionId);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
-        <MetaLine
-          items={[
-            activeTopicSubject.name,
-            activeTopicChapter?.title,
-            `~${activeTopic.estimatedMinutes} mins`,
-            activeTopic.difficulty,
-          ]}
-        />
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Top Breadcrumb + Section Jump Bar */}
+      <div className="bg-white border border-[#E2E5DC] rounded-xl px-5 py-3.5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setMode("explorer")}
+            className="inline-flex items-center gap-2 text-xs font-semibold text-[#164A31] hover:underline cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            All {activeTopicSubject.name} Chapters (Class {activeTopic.classLevel})
+          </button>
+
+          <MetaLine
+            items={[
+              activeTopicSubject.name,
+              activeTopicChapter?.title,
+              `~${activeTopic.estimatedMinutes} mins`,
+              activeTopic.difficulty,
+            ]}
+          />
+        </div>
+
+        {/* Textbook Section Jump Bar */}
+        <div className="pt-2.5 border-t border-[#E2E5DC] flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[#6E7B72] font-medium mr-1">
+              In this lesson:
+            </span>
+            <button
+              type="button"
+              onClick={() => scrollToLessonSection("lesson-concept-notes")}
+              className="px-2.5 py-1 rounded-md bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-[#14241B] font-medium cursor-pointer"
+            >
+              1. Concept &amp; Formulas
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToLessonSection("lesson-interactive-lab")}
+              className="px-2.5 py-1 rounded-md bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-[#14241B] font-medium cursor-pointer"
+            >
+              2. Interactive Lab
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToLessonSection("lesson-solved-examples")}
+              className="px-2.5 py-1 rounded-md bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-[#14241B] font-medium cursor-pointer"
+            >
+              3. Solved Examples ({activeTopic.workedExamples.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToLessonSection("lesson-quick-check")}
+              className="px-2.5 py-1 rounded-md bg-[#FAF8F3] border border-[#E2E5DC] hover:border-[#164A31] text-[#14241B] font-medium cursor-pointer"
+            >
+              4. Quick Check &amp; Practice
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* 1. TOPIC TITLE, LEARNING OBJECTIVES & INTUITIVE INTRODUCTION */}
-      <article className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 space-y-8">
+      <article
+        id="lesson-concept-notes"
+        className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 space-y-8 scroll-mt-24"
+      >
         <header className="space-y-4 pb-6 border-b border-[#E2E5DC]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-2 max-w-2xl">
@@ -633,7 +697,10 @@ export function LearnView({
       <ConceptSimulator spec={activeTopic.simulation} />
 
       {/* 3. WORKED EXAMPLES */}
-      <section className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 space-y-6">
+      <section
+        id="lesson-solved-examples"
+        className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 space-y-6 scroll-mt-24"
+      >
         <div>
           <MetaLine items={["Step-by-Step Derivations & Substitutions"]} />
           <h2 className="text-xl font-bold text-[#14241B] mt-0.5">
@@ -649,7 +716,10 @@ export function LearnView({
       </section>
 
       {/* 4. CONCISE KEY-POINTS SUMMARY & SHORT KNOWLEDGE CHECK */}
-      <section className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 space-y-8">
+      <section
+        id="lesson-quick-check"
+        className="bg-white border border-[#E2E5DC] rounded-xl p-6 sm:p-8 space-y-8 scroll-mt-24"
+      >
         {/* Key-Points Summary */}
         <div className="space-y-3">
           <h2 className="text-lg font-bold text-[#14241B]">
@@ -702,6 +772,8 @@ export function LearnView({
                 <button
                   key={opt.id}
                   type="button"
+                  role="radio"
+                  aria-checked={chosen}
                   disabled={kcSubmitted}
                   onClick={() => setKcSelected(opt.id)}
                   className={`w-full text-left p-3.5 rounded-lg border text-xs sm:text-sm flex items-center gap-3 transition-colors cursor-pointer disabled:cursor-default ${style}`}
