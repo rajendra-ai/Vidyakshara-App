@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: "Source Serif 4", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-canvas: #FAF8F3;
+  --color-surface: #FFFFFF;
+  --color-surface-subtle: #F3F1EA;
+  --color-border-hairline: #E2E5DC;
+  --color-ink-primary: #14241B;
+  --color-ink-secondary: #48564D;
+  --color-ink-muted: #6E7B72;
+
+  --color-forest: #164A31;
+  --color-forest-hover: #0F3623;
+  --color-forest-light: #EAF2EC;
+
+  --color-lime-accent: #D8F3A2;
+  --color-lime-strong: #BCE66C;
+
+  --color-info-surface: #EBF3F9;
+  --color-info-border: #C5DDF0;
+  --color-info-ink: #184E77;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--color-canvas);
+    color: var(--color-ink-primary);
+    scroll-behavior: smooth;
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+    letter-spacing: -0.015em;
+  }
+
+  /* Accessible focus ring across all interactive controls */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #164A31;
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

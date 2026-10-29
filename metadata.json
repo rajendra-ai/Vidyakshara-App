@@ -1,0 +1,6 @@
+{
+  "name": "Vidyakshara",
+  "description": "Personalised learning and competitive exam preparation companion for Class 11 and 12 students preparing for JEE Main, JEE Advanced, and NEET UG.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
